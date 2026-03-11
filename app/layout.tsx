@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
+import { K8sStatusWidget } from "@/components/k8s-status-widget";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <K8sStatusWidget />
       </body>
     </html>
   );
