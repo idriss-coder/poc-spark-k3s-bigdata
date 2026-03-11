@@ -1,6 +1,5 @@
-import CONFIG from "./config";
-
-const API_URL = CONFIG.API_URL;
+// Use local NEXT route proxy for external APIs to avoid Mixed Content / CORS.
+const API_URL = "/api/proxy";
 
 // --- Types ---
 
