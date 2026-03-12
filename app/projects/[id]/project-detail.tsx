@@ -10,6 +10,7 @@ import {
   launchAnalysis,
   deleteProject,
   formatBytes,
+  computeCompressionStats,
   type ProjectDetail,
   type ProgressResponse,
   type ResultResponse,
@@ -20,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, ChartBar, Lightning, Spinner, CheckCircle, XCircle, Clock, ArrowsClockwise, Trash } from "@phosphor-icons/react";
+import { ArrowLeft, ChartBar, Lightning, Spinner, CheckCircle, XCircle, Clock, ArrowsClockwise, Trash, Database } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 
 // ---------------------------------------------------------------------------
@@ -28,12 +29,12 @@ import { useRouter } from "next/navigation";
 // ---------------------------------------------------------------------------
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive"; icon: React.ReactNode }> = {
-  uploaded:   { label: "Uploadé",    variant: "secondary",    icon: <Clock size={14} /> },
-  converting: { label: "Conversion", variant: "default",      icon: <ArrowsClockwise size={14} className="animate-spin" /> },
-  ready:      { label: "Prêt",       variant: "outline",      icon: <CheckCircle size={14} /> },
-  analysing:  { label: "Analyse",    variant: "default",      icon: <Spinner size={14} className="animate-spin" /> },
-  completed:  { label: "Terminé",    variant: "outline",      icon: <CheckCircle size={14} /> },
-  failed:     { label: "Échoué",     variant: "destructive",  icon: <XCircle size={14} /> },
+  uploaded: { label: "Uploadé", variant: "secondary", icon: <Clock size={14} /> },
+  converting: { label: "Conversion", variant: "default", icon: <ArrowsClockwise size={14} className="animate-spin" /> },
+  ready: { label: "Prêt", variant: "outline", icon: <CheckCircle size={14} /> },
+  analysing: { label: "Analyse", variant: "default", icon: <Spinner size={14} className="animate-spin" /> },
+  completed: { label: "Terminé", variant: "outline", icon: <CheckCircle size={14} /> },
+  failed: { label: "Échoué", variant: "destructive", icon: <XCircle size={14} /> },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -64,7 +65,7 @@ function formatDate(iso: string) {
 function formatTime(iso: string) {
   try {
     return parseUtcDate(iso).toLocaleTimeString('fr-FR', {
-      hour: '2-digit', minute:'2-digit', second:'2-digit'
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
   } catch {
     return iso;
@@ -76,12 +77,12 @@ function formatDuration(startISO: string, endISO: string): string {
     const start = parseUtcDate(startISO).getTime();
     const end = parseUtcDate(endISO).getTime();
     if (isNaN(start) || isNaN(end)) return "";
-    
+
     // En millisecondes, convert en secondes
     const diff_seconds = Math.max(0, Math.floor((end - start) / 1000));
-    
+
     if (diff_seconds < 60) return `${diff_seconds}s`;
-    
+
     const minutes = Math.floor(diff_seconds / 60);
     const seconds = diff_seconds % 60;
     return `${minutes}m ${seconds}s`;
@@ -335,7 +336,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             </p>
             {(project.csv_size_bytes || project.parquet_size_bytes) && (
               <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                CSV: {project.csv_size_bytes ? formatBytes(project.csv_size_bytes) : "Inconnu"}
+                CSV: {project.csv_size_bytes ? formatBytes(project.csv_size_bytes) : "—"}
                 {project.parquet_size_bytes && (
                   <span className="text-primary font-medium ml-2 border-l border-border pl-2">
                     Parquet: {formatBytes(project.parquet_size_bytes)}
@@ -345,17 +346,17 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             )}
           </div>
           <div className="flex items-center gap-3">
-             <StatusBadge status={project.status} />
-             <Button 
-               variant="outline" 
-               size="icon" 
-               className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
-               onClick={handleDelete}
-               disabled={isPolling || isDeleting}
-               title="Supprimer le projet"
-             >
-               {isDeleting ? <Spinner size={14} className="animate-spin" /> : <Trash size={14} />}
-             </Button>
+            <StatusBadge status={project.status} />
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+              onClick={handleDelete}
+              disabled={isPolling || isDeleting}
+              title="Supprimer le projet"
+            >
+              {isDeleting ? <Spinner size={14} className="animate-spin" /> : <Trash size={14} />}
+            </Button>
           </div>
         </CardHeader>
 
@@ -365,8 +366,8 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
-                  {project.status === "converting" 
-                    ? (progress?.progress === 0 ? "Démarrage du cluster Spark (allocation des ressources)..." : "Conversion CSV → Parquet") 
+                  {project.status === "converting"
+                    ? (progress?.progress === 0 ? "Démarrage du cluster Spark (allocation des ressources)..." : "Conversion CSV → Parquet")
                     : (progress?.progress === 0 ? "Démarrage du cluster Spark (réveil des exécuteurs)..." : "Analyse Spark en cours")}
                 </span>
                 <span>{progress?.progress ?? 0}%</span>
@@ -378,60 +379,146 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             </div>
           </CardContent>
         )}
-        
+
         {/* Execution Timeline Integration */}
         {(project.convert_ended_at || project.convert_started_at || (result && result.ended_at)) && (
           <CardContent className={`pt-0 ${isPolling ? 'border-t mt-4 pt-4' : ''}`}>
-             <h4 className="text-sm font-semibold flex items-center gap-1 mb-3">
-               <Clock size={16} /> Chronologie des traitements Spark
-             </h4>
-             <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
-                
-                {project.convert_started_at && (
-                  <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                     <div className="flex items-center justify-center w-5 h-5 rounded-full border border-primary/50 bg-background shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 shadow-sm">
-                       <ArrowsClockwise size={10} className={project.convert_ended_at ? "" : "animate-spin text-primary"} />
-                     </div>
-                     <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-3 border rounded text-xs bg-muted/40 transition-colors">
-                       <p className="font-semibold text-foreground">Conversion Parquet</p>
-                       <div className="flex justify-between text-muted-foreground mt-1">
-                          <span>Début : {formatTime(project.convert_started_at)}</span>
-                          {project.convert_ended_at && <span>Fin : {formatTime(project.convert_ended_at)}</span>}
-                       </div>
-                       {project.convert_ended_at && (
-                         <div className="mt-1.5 pt-1.5 border-t border-border flex justify-between font-mono text-primary font-medium">
-                           <span>Durée</span>
-                           <span>{formatDuration(project.convert_started_at, project.convert_ended_at)}</span>
-                         </div>
-                       )}
-                     </div>
+            <h4 className="text-sm font-semibold flex items-center gap-1 mb-3">
+              <Clock size={16} /> Chronologie des traitements Spark
+            </h4>
+            <div className="space-y-3 relative before:absolute before:inset-0 before:ml-2 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
+
+              {project.convert_started_at && (
+                <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                  <div className="flex items-center justify-center w-5 h-5 rounded-full border border-primary/50 bg-background shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 shadow-sm">
+                    <ArrowsClockwise size={10} className={project.convert_ended_at ? "" : "animate-spin text-primary"} />
                   </div>
-                )}
-                
-                {result && result.created_at && (
-                  <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                     <div className="flex items-center justify-center w-5 h-5 rounded-full border border-primary/50 bg-background shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 shadow-sm">
-                       <ChartBar size={10} className={result.ended_at ? "" : "animate-spin text-primary"} />
-                     </div>
-                     <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-3 border rounded text-xs bg-muted/40 transition-colors">
-                       <p className="font-semibold text-foreground">Analyse des données</p>
-                       <div className="flex justify-between text-muted-foreground mt-1">
-                          <span>Début : {formatTime(result.created_at)}</span>
-                          {result.ended_at && <span>Fin : {formatTime(result.ended_at)}</span>}
-                       </div>
-                       {result.ended_at && (
-                         <div className="mt-1.5 pt-1.5 border-t border-border flex justify-between font-mono text-primary font-medium">
-                           <span>Durée</span>
-                           <span>{formatDuration(result.created_at, result.ended_at)}</span>
-                         </div>
-                       )}
-                     </div>
+                  <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-3 border rounded text-xs bg-muted/40 transition-colors">
+                    <p className="font-semibold text-foreground">Conversion Parquet</p>
+                    <div className="flex justify-between text-muted-foreground mt-1">
+                      <span>Début : {formatTime(project.convert_started_at)}</span>
+                      {project.convert_ended_at && <span>Fin : {formatTime(project.convert_ended_at)}</span>}
+                    </div>
+                    {project.convert_ended_at && (
+                      <div className="mt-1.5 pt-1.5 border-t border-border flex justify-between font-mono text-primary font-medium">
+                        <span>Durée</span>
+                        <span>{formatDuration(project.convert_started_at, project.convert_ended_at)}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-             </div>
+                </div>
+              )}
+
+              {result && result.created_at && (
+                <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                  <div className="flex items-center justify-center w-5 h-5 rounded-full border border-primary/50 bg-background shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 shadow-sm">
+                    <ChartBar size={10} className={result.ended_at ? "" : "animate-spin text-primary"} />
+                  </div>
+                  <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-3 border rounded text-xs bg-muted/40 transition-colors">
+                    <p className="font-semibold text-foreground">Analyse des données</p>
+                    <div className="flex justify-between text-muted-foreground mt-1">
+                      <span>Début : {formatTime(result.created_at)}</span>
+                      {result.ended_at && <span>Fin : {formatTime(result.ended_at)}</span>}
+                    </div>
+                    {result.ended_at && (
+                      <div className="mt-1.5 pt-1.5 border-t border-border flex justify-between font-mono text-primary font-medium">
+                        <span>Durée</span>
+                        <span>{formatDuration(result.created_at, result.ended_at)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </CardContent>
         )}
       </Card>
+
+      {/* Storage Efficiency Card */}
+      {(() => {
+        const stats = computeCompressionStats(project.csv_size_bytes, project.parquet_size_bytes);
+        if (!stats) return null;
+        const parquetW = Math.max(3, Math.round(stats.compressionRatio * 100));
+        return (
+          <Card>
+            <CardContent className="py-4 px-5 space-y-3">
+              {/* Always-visible: bars + headline stat */}
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
+                  Storage Efficiency
+                </p>
+                <span className="text-[10px] font-semibold text-emerald-600 tabular-nums">
+                  −{stats.sizeReductionPct}%
+                </span>
+              </div>
+
+              {/* Bar — CSV */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="font-mono">CSV</span>
+                  <span className="font-mono tabular-nums">{formatBytes(project.csv_size_bytes)}</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-full w-full rounded-full bg-muted-foreground/30" />
+                </div>
+              </div>
+
+              {/* Bar — Parquet */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-mono text-foreground font-medium">Parquet</span>
+                  <span className="font-mono tabular-nums text-foreground font-medium">{formatBytes(project.parquet_size_bytes)}</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{ width: `${parquetW}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Collapsible details */}
+              <details className="group">
+                <summary className="flex items-center gap-1 cursor-pointer select-none list-none pt-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit">
+                  <Database size={12} className="shrink-0" />
+                  <span className="group-open:hidden">Voir les métriques détaillées</span>
+                  <span className="hidden group-open:inline">Masquer</span>
+                </summary>
+
+                <div className="mt-3 space-y-3 border-t border-border pt-3">
+                  {/* KPI row */}
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Size reduction</span>
+                      <span className="text-xs font-semibold text-foreground tabular-nums">{stats.sizeReductionPct}%</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Compression ratio</span>
+                      <span className="text-xs font-semibold text-foreground tabular-nums">{stats.compressionRatio.toFixed(2)}×</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Space saved</span>
+                      <span className="text-xs font-semibold text-foreground tabular-nums">{formatBytes(stats.savedBytes)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        Spark read speedup
+                      </span>
+                      <span className="text-xs font-semibold text-foreground tabular-nums">{stats.sparkReadSpeedup}×</span>
+                    </div>
+                  </div>
+
+                  {/* One-liner explainer */}
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Parquet (columnar + Snappy) permet à Spark d&apos;appliquer column pruning et predicate pushdown,
+                    réduisant les I/O versus un scan CSV ligne par ligne.
+                  </p>
+                </div>
+              </details>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Uploaded — waiting */}
       {project.status === "uploaded" && (

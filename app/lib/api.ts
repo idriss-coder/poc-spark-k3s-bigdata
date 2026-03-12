@@ -229,6 +229,50 @@ export function formatBytes(bytes: number | null | undefined): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
+// --- Storage Efficiency Metrics (CSV → Parquet) ---
+
+export type CompressionStats = {
+  /** Ratio parquet/csv  ex: 0.25 signifie que parquet = 25% de la taille CSV */
+  compressionRatio: number;
+  /** Réduction de taille en pourcentage  ex: 75 → "75% smaller" */
+  sizeReductionPct: number;
+  /** Octets économisés */
+  savedBytes: number;
+  /**
+   * Estimation du speedup Spark en lecture (scan complet).
+   * Basé sur des benchmarks empiriques Spark : Parquet columnar reads
+   * sont typiquement 5–10× plus rapides que CSV row-by-row.
+   * On scale ce facteur proportionnellement au ratio de compression
+   * en restant dans la fourchette [3×, 15×].
+   */
+  sparkReadSpeedup: number;
+};
+
+/**
+ * Calcule les métriques d'efficacité de stockage CSV → Parquet.
+ * Renvoie `null` si les deux tailles ne sont pas disponibles.
+ */
+export function computeCompressionStats(
+  csvBytes: number | null | undefined,
+  parquetBytes: number | null | undefined
+): CompressionStats | null {
+  if (!csvBytes || !parquetBytes || csvBytes <= 0) return null;
+
+  const compressionRatio = parquetBytes / csvBytes;
+  const sizeReductionPct = Math.round((1 - compressionRatio) * 100);
+  const savedBytes = csvBytes - parquetBytes;
+
+  // Spark read speedup : interpolation dans [3×, 15×] selon le ratio
+  // ratio 1.0 → 3×,  ratio 0.0 → 15×
+  const BASE_SPEEDUP = 3;
+  const MAX_SPEEDUP_BONUS = 12;
+  const sparkReadSpeedup = parseFloat(
+    (BASE_SPEEDUP + MAX_SPEEDUP_BONUS * Math.max(0, 1 - compressionRatio)).toFixed(1)
+  );
+
+  return { compressionRatio, sizeReductionPct, savedBytes, sparkReadSpeedup };
+}
+
 // --- Analysis ---
 
 export async function launchAnalysis(

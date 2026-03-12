@@ -10,12 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight } from "@phosphor-icons/react";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  uploaded:   { label: "Uploadé",    variant: "secondary" },
+  uploaded: { label: "Uploadé", variant: "secondary" },
   converting: { label: "Conversion", variant: "default" },
-  ready:      { label: "Prêt",       variant: "outline" },
-  analysing:  { label: "Analyse",    variant: "default" },
-  completed:  { label: "Terminé",    variant: "outline" },
-  failed:     { label: "Échoué",     variant: "destructive" },
+  ready: { label: "Prêt", variant: "outline" },
+  analysing: { label: "Analyse", variant: "default" },
+  completed: { label: "Terminé", variant: "outline" },
+  failed: { label: "Échoué", variant: "destructive" },
 };
 
 function formatDate(iso: string) {
@@ -158,7 +158,7 @@ export function HomeContent() {
                           </Badge>
                         </td>
                         <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-xs">
-                          {p.csv_size_bytes ? formatBytes(p.csv_size_bytes) : "-"} 
+                          {p.csv_size_bytes ? formatBytes(p.csv_size_bytes) : "-"}
                           {p.parquet_size_bytes ? (
                             <>
                               {" "}→ <span className="text-primary font-medium">{formatBytes(p.parquet_size_bytes)}</span>
