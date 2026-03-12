@@ -40,7 +40,7 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
     submittingRef.current = true;
     setError(null);
     setSuccess(null);
-    
+
     if (!projectName.trim()) {
       setError("Indiquez un nom de projet.");
       submittingRef.current = false;
@@ -73,11 +73,11 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
       const urls = urlsRes.urls;
 
       setUploadPhase("Envoi des données en cours...");
-      
+
       const uploadedParts: MultipartPart[] = [];
       let partsCompleted = 0;
       let totalBytesUploaded = 0;
-      
+
       // Track progress per part
       const partProgress = new Array(totalParts).fill(0);
 
@@ -91,7 +91,7 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
         return new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open("PUT", url, true);
-          
+
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
               partProgress[partNumber - 1] = event.loaded;
@@ -110,10 +110,10 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
                 console.warn(`ETag missing for part ${partNumber}`);
                 etag = `"fake-etag-for-testing"`; // fallback for local testing without correct CORS
               } else {
-                 // Remove extra quotes that some browsers might leave
-                etag = etag.replace(/(^"|"$)/g, ""); 
+                // Remove extra quotes that some browsers might leave
+                etag = etag.replace(/(^"|"$)/g, "");
               }
-              
+
               uploadedParts.push({ PartNumber: partNumber, ETag: etag });
               partsCompleted++;
               resolve();
@@ -133,11 +133,11 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
         while (queue.length > 0) {
           const pn = queue.shift();
           if (pn !== undefined) {
-             await uploadPart(pn);
+            await uploadPart(pn);
           }
         }
       });
-      
+
       await Promise.all(workers);
 
       // 4. Complete multipart upload
@@ -155,11 +155,11 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
       setFile(null);
       setUploadProgress(100);
       onSuccess?.();
-      
+
     } catch (err) {
       if (currentUploadId && currentS3Key) {
-          // Attempt to clean up S3 on failure
-          abortMultipartUpload(currentS3Key, currentUploadId).catch(console.error);
+        // Attempt to clean up S3 on failure
+        abortMultipartUpload(currentS3Key, currentUploadId).catch(console.error);
       }
       setError(err instanceof Error ? err.message : "Une erreur est survenue lors de l'upload.");
     } finally {
@@ -191,9 +191,9 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className={cn("space-y-6", className)}>
-      <div className="space-y-2">
-        <label htmlFor="project-name" className="text-sm font-medium text-foreground">
-          Nom du projet
+      <div className="space-y-3">
+        <label htmlFor="project-name" className="text-sm font-medium text-foreground mb-2 inline-block">
+          Nom du projet <span className="text-destructive">*</span>
         </label>
         <Input
           id="project-name"
@@ -207,9 +207,9 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
         />
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">
-          Fichier de données
+      <div className="space-y-3">
+        <label className="text-sm font-medium text-foreground inline-block">
+          Fichier de données <span className="text-destructive">*</span>
         </label>
 
         {!file ? (
@@ -307,20 +307,22 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
         </div>
       )}
 
-      <Button
-        type="submit"
-        disabled={loading || !file || !projectName.trim()}
-        className="w-full h-11 text-base shadow-sm"
-      >
-        {loading ? (
-          <>
-            <CircleNotch weight="bold" className="w-5 h-5 mr-2 animate-spin" />
-            Création du projet...
-          </>
-        ) : (
-          "Créer le projet"
-        )}
-      </Button>
+      <div className="flex items-end justify-end">
+        <Button
+          type="submit"
+          disabled={loading}
+          className="rounded w-full cursor-pointer hover:bg-primary/80 h-11 font-semibold text-sm"
+        >
+          {loading ? (
+            <>
+              <CircleNotch weight="bold" className="w-5 h-5 mr-2 animate-spin" />
+              Création du projet...
+            </>
+          ) : (
+            "Créer le projet"
+          )}
+        </Button>
+      </div>
     </form>
   );
 }
