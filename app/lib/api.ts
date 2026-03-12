@@ -13,6 +13,20 @@ export type UploadCompleteResponse = {
   status: string;
 };
 
+export type MultipartStartResponse = {
+  upload_id: string;
+  s3_key: string;
+};
+
+export type MultipartUrlsResponse = {
+  urls: Record<number, string>;
+};
+
+export type MultipartPart = {
+  PartNumber: number;
+  ETag: string;
+};
+
 export type ProjectListItem = {
   id: number;
   name: string;
@@ -110,6 +124,71 @@ export async function uploadComplete(
     body: JSON.stringify({ s3_key, project_name, csv_size_bytes: sizeBytes }),
   });
   return handleResponse<UploadCompleteResponse>(res);
+}
+
+// --- Multipart Upload ---
+
+export async function startMultipartUpload(
+  filename: string,
+  contentType: string = "text/csv"
+): Promise<MultipartStartResponse> {
+  const res = await fetch(`${API_URL}/upload-multipart/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, content_type: contentType }),
+  });
+  return handleResponse<MultipartStartResponse>(res);
+}
+
+export async function getMultipartUrls(
+  s3Key: string,
+  uploadId: string,
+  partNumbers: number[]
+): Promise<MultipartUrlsResponse> {
+  const res = await fetch(`${API_URL}/upload-multipart/urls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      s3_key: s3Key,
+      upload_id: uploadId,
+      part_numbers: partNumbers,
+    }),
+  });
+  return handleResponse<MultipartUrlsResponse>(res);
+}
+
+export async function completeMultipartUpload(
+  s3Key: string,
+  uploadId: string,
+  parts: MultipartPart[],
+  projectName: string,
+  sizeBytes: number
+): Promise<UploadCompleteResponse> {
+  const res = await fetch(`${API_URL}/upload-multipart/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      s3_key: s3Key,
+      upload_id: uploadId,
+      parts,
+      project_name: projectName,
+      csv_size_bytes: sizeBytes,
+    }),
+  });
+  return handleResponse<UploadCompleteResponse>(res);
+}
+
+export async function abortMultipartUpload(
+  s3Key: string,
+  uploadId: string
+): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/upload-multipart/abort?s3_key=${encodeURIComponent(s3Key)}&upload_id=${encodeURIComponent(uploadId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+  return handleResponse<void>(res);
 }
 
 // --- Projects ---
