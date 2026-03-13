@@ -33,6 +33,7 @@ export type ProjectListItem = {
   status: string;
   csv_size_bytes: number | null;
   parquet_size_bytes: number | null;
+  total_rows?: number | null;
   created_at: string;
 };
 
@@ -44,6 +45,7 @@ export type ProjectDetail = {
   parquet_s3_path: string | null;
   csv_size_bytes: number | null;
   parquet_size_bytes: number | null;
+  total_rows?: number | null;
   created_at: string;
   convert_started_at: string | null;
   convert_ended_at: string | null;
