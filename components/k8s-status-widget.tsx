@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ArrowsClockwise, HardDrives, Cube, Clock } from "@phosphor-icons/react";
+import { X, HardDrives, Cube, Clock } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -16,6 +16,14 @@ interface ClusterData {
     age: string;
     version: string;
     internal_ip: string;
+    metrics?: {
+      cpu_mcores_used: number;
+      cpu_mcores_total: number;
+      cpu_percent: number;
+      ram_bytes_used: number;
+      ram_bytes_total: number;
+      ram_percent: number;
+    };
   }[];
   pods: {
     name: string;
@@ -33,7 +41,62 @@ interface ClusterData {
     pods_running: number;
     pods_pending: number;
     pods_failed: number;
+    cpu_mcores_used?: number;
+    cpu_mcores_total?: number;
+    cpu_percent?: number;
+    ram_bytes_used?: number;
+    ram_bytes_total?: number;
+    ram_percent?: number;
   };
+}
+
+const formatCores = (mcores?: number) => {
+  const v = typeof mcores === "number" ? mcores : 0;
+  return `${(v / 1000).toFixed(2)} cores`;
+};
+
+const formatBytes = (bytes?: number) => {
+  const b = typeof bytes === "number" ? bytes : 0;
+  const gb = b / (1024 ** 3);
+  if (gb >= 1) return `${gb.toFixed(2)} GiB`;
+  const mb = b / (1024 ** 2);
+  if (mb >= 1) return `${mb.toFixed(0)} MiB`;
+  const kb = b / 1024;
+  if (kb >= 1) return `${kb.toFixed(0)} KiB`;
+  return `${b.toFixed(0)} B`;
+};
+
+function UsageBar({
+  label,
+  usedLabel,
+  totalLabel,
+  percent,
+}: {
+  label: string;
+  usedLabel: string;
+  totalLabel: string;
+  percent: number;
+}) {
+  const p = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+  const isMuted = totalLabel === "—";
+  return (
+    <div className={cn("space-y-1", isMuted && "opacity-60")}>
+      <div className="flex items-center justify-between text-[11px] text-slate-500">
+        <span className="font-medium tracking-wide uppercase">{label}</span>
+        <span className="tabular-nums">{p.toFixed(0)}%</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[#326CE5]"
+          style={{ width: `${p}%` }}
+        />
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+        <span>{usedLabel}</span>
+        <span className="text-slate-500">/ {totalLabel}</span>
+      </div>
+    </div>
+  );
 }
 
 const K8sIcon = ({ className }: { className?: string }) => (
@@ -51,12 +114,10 @@ const K8sIcon = ({ className }: { className?: string }) => (
 export function K8sStatusWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [data, setData] = useState<ClusterData | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
-      setLoading(true);
       const res = await fetch(`/api/cluster`);
       if (!res.ok) throw new Error("Failed to fetch cluster data");
       const json = await res.json();
@@ -69,7 +130,6 @@ export function K8sStatusWidget() {
         setError(String(err));
       }
     } finally {
-      setLoading(false);
     }
   };
 
@@ -92,8 +152,7 @@ export function K8sStatusWidget() {
   };
 
   const sparkPods = data?.pods?.filter(p => !p.name.includes("kube-system")) || [];
-  const systemPods = data?.pods?.filter(p => p.name.includes("kube-system") || (!p.ready.startsWith("spark") && !p.ready.startsWith("poc"))) || [];
-  const appPods = data?.pods?.filter(p => p.ready.startsWith("poc")) || [];
+  
 
   return (
     <>
@@ -164,6 +223,38 @@ export function K8sStatusWidget() {
                     Error connecting to cluster API: {error}
                   </div>
                 )}
+
+                {/* Global CPU/RAM */}
+                <section className="bg-white border border-slate-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-semibold text-slate-800">Cluster Utilization</div>
+                    <div className="text-[11px] text-slate-500 tabular-nums">
+                      {data?.timestamp ? new Date(data.timestamp).toLocaleTimeString() : ""}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <UsageBar
+                      label="CPU"
+                      usedLabel={formatCores(data?.summary?.cpu_mcores_used)}
+                      totalLabel={
+                        typeof data?.summary?.cpu_mcores_total === "number" && data.summary.cpu_mcores_total > 0
+                          ? formatCores(data.summary.cpu_mcores_total)
+                          : "—"
+                      }
+                      percent={Number(data?.summary?.cpu_percent ?? 0)}
+                    />
+                    <UsageBar
+                      label="Memory"
+                      usedLabel={formatBytes(data?.summary?.ram_bytes_used)}
+                      totalLabel={
+                        typeof data?.summary?.ram_bytes_total === "number" && data.summary.ram_bytes_total > 0
+                          ? formatBytes(data.summary.ram_bytes_total)
+                          : "—"
+                      }
+                      percent={Number(data?.summary?.ram_percent ?? 0)}
+                    />
+                  </div>
+                </section>
 
                 {/* Pods Section (More Prominent!) */}
                 <section>
@@ -240,6 +331,29 @@ export function K8sStatusWidget() {
                         <div className="text-xs text-slate-500 mt-2 flex justify-between">
                           <span>{node.roles}</span>
                           <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {node.age}</span>
+                        </div>
+
+                        <div className="mt-3 space-y-3">
+                          <UsageBar
+                            label="CPU"
+                            usedLabel={formatCores(node.metrics?.cpu_mcores_used)}
+                            totalLabel={
+                              typeof node.metrics?.cpu_mcores_total === "number" && node.metrics.cpu_mcores_total > 0
+                                ? formatCores(node.metrics.cpu_mcores_total)
+                                : "—"
+                            }
+                            percent={Number(node.metrics?.cpu_percent ?? 0)}
+                          />
+                          <UsageBar
+                            label="Memory"
+                            usedLabel={formatBytes(node.metrics?.ram_bytes_used)}
+                            totalLabel={
+                              typeof node.metrics?.ram_bytes_total === "number" && node.metrics.ram_bytes_total > 0
+                                ? formatBytes(node.metrics.ram_bytes_total)
+                                : "—"
+                            }
+                            percent={Number(node.metrics?.ram_percent ?? 0)}
+                          />
                         </div>
                       </div>
                     ))}
