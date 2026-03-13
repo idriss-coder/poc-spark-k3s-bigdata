@@ -91,7 +91,7 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
             className={cn(
-              "relative group flex flex-col items-center justify-center w-full h-48 px-6 py-8 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer",
+              "relative group flex flex-col items-center justify-center w-full h-48 px-6 py-8 border-2 border-dashed rounded-md transition-all duration-200 cursor-pointer",
               isDragging
                 ? "border-primary bg-primary/5 scale-[1.02]"
                 : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50"
@@ -126,7 +126,7 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between p-4 border rounded-xl bg-card">
+          <div className="flex items-center justify-between p-4 border rounded-md bg-card">
             <div className="flex items-center space-x-4 overflow-hidden">
               <div className="p-2.5 bg-primary/10 text-primary rounded-lg shrink-0">
                 <FileCsv weight="duotone" className="w-6 h-6" />
@@ -165,7 +165,7 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
       )}
 
       {loading && (
-        <div className="space-y-3 p-4 border rounded-xl bg-muted/40 animate-in fade-in zoom-in-95 duration-200">
+        <div className="space-y-3 p-4 border rounded-md bg-muted/40 animate-in fade-in zoom-in-95 duration-200">
           <div className="flex justify-between items-center text-sm">
             <span className="font-medium text-foreground flex items-center gap-2">
               <CircleNotch weight="bold" className="w-4 h-4 animate-spin text-primary" />

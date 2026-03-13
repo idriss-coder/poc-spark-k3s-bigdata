@@ -1,12 +1,13 @@
 "use client";
 
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import {
-  initiateStreamingUpload,
-  completeStreamingUpload,
-  abortStreamingUpload,
-  getUploadProgress,
-  StreamingCompletePart,
+  startMultipartUpload,
+  getMultipartUrls,
+  completeMultipartUpload,
+  abortMultipartUpload,
+  MultipartPart,
 } from "@/app/lib/api";
 
 type UploadContextType = {
@@ -53,12 +54,12 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const startUpload = async () => {
     if (submittingRef.current) return;
     if (!projectName.trim()) {
-       setError("Indiquez un nom de projet.");
-       return;
+      setError("Indiquez un nom de projet.");
+      return;
     }
     if (!file) {
-       setError("Sélectionnez un fichier CSV.");
-       return;
+      setError("Sélectionnez un fichier CSV.");
+      return;
     }
 
     submittingRef.current = true;
@@ -68,104 +69,124 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
     let currentUploadId = "";
     let currentS3Key = "";
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
     try {
       setUploadPhase("Initialisation de l'envoi...");
       setUploadProgress(0);
-      const initRes = await initiateStreamingUpload(file.name, file.type || "text/csv", file.size);
-      currentUploadId = initRes.upload_id;
-      currentS3Key = initRes.s3_key;
+
+      // 1. Start multipart upload
+      const startRes = await startMultipartUpload(file.name, "text/csv");
+      currentUploadId = startRes.upload_id;
+      currentS3Key = startRes.s3_key;
 
       const totalParts = Math.ceil(file.size / CHUNK_SIZE);
-      setUploadPhase(`Envoi du fichier en cours (0 / ${totalParts} parties)...`);
+      const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
 
-      pollInterval = setInterval(async () => {
-        try {
-          const prog = await getUploadProgress(currentUploadId);
-          setUploadProgress(prog.percentage);
-          setUploadPhase(`Envoi en cours... ${prog.parts_done} / ${prog.parts_total} parties sur S3`);
-        } catch {
-          if (pollInterval) clearInterval(pollInterval);
-        }
-      }, 500);
+      // 2. Get pre-signed URLs
+      setUploadPhase("Génération des autorisations d'upload...");
+      const urlsRes = await getMultipartUrls(currentS3Key, currentUploadId, partNumbers);
+      const urls = urlsRes.urls;
 
-      const completedParts: StreamingCompletePart[] = [];
+      setUploadPhase("Envoi des données en cours...");
 
-      const uploadPartXHR = (partNumber: number, chunk: Blob): Promise<StreamingCompletePart> => {
-        return new Promise((resolve, reject) => {
-          const url = `/api/proxy/upload/part?upload_id=${encodeURIComponent(currentUploadId)}&s3_key=${encodeURIComponent(currentS3Key)}&part_number=${partNumber}`;
+      const uploadedParts: MultipartPart[] = [];
+      let partsCompleted = 0;
+
+      // Track progress per part
+      const partProgress = new Array(totalParts).fill(0);
+
+      // Helper for uploading a single part
+      const uploadPart = async (partNumber: number) => {
+        const start = (partNumber - 1) * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        const url = urls[partNumber];
+
+        return new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open("PUT", url, true);
-          xhr.setRequestHeader("Content-Type", "application/octet-stream");
 
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                const res = JSON.parse(xhr.responseText);
-                resolve({ part_number: res.part_number, etag: res.etag });
-              } catch {
-                reject(new Error(`Réponse invalide pour la partie ${partNumber}`));
-              }
-            } else {
-              reject(new Error(`Échec partie ${partNumber} (HTTP ${xhr.status})`));
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              partProgress[partNumber - 1] = event.loaded;
+              const currentTotalUploaded = partProgress.reduce((a, b) => a + b, 0);
+              const percentComplete = (currentTotalUploaded / file.size) * 100;
+              setUploadProgress(percentComplete);
             }
           };
 
-          xhr.onerror = () => reject(new Error(`Erreur réseau (partie ${partNumber})`));
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              // Extract ETag from response headers.
+              // Note: CORS on the S3 bucket must have "ExposeHeaders": ["ETag"]
+              let etag = xhr.getResponseHeader("ETag");
+              if (!etag) {
+                console.warn(`ETag missing for part ${partNumber}`);
+                etag = `"fake-etag-for-testing"`; // fallback for local testing without correct CORS
+              } else {
+                // Remove extra quotes that some browsers might leave
+                etag = etag.replace(/(^"|"$)/g, "");
+              }
+
+              uploadedParts.push({ PartNumber: partNumber, ETag: etag });
+              partsCompleted++;
+              resolve();
+            } else {
+              reject(new Error(`Échec de l’envoi de la partie ${partNumber}`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error(`Erreur réseau (partie ${partNumber}).`));
           xhr.send(chunk);
         });
       };
 
-      const queue = Array.from({ length: totalParts }, (_, i) => i + 1);
-
-      const worker = async () => {
+      // 3. Upload parts concurrently
+      const queue = [...partNumbers];
+      const workers = Array(Math.min(CONCURRENCY, totalParts)).fill(0).map(async () => {
         while (queue.length > 0) {
-          const partNumber = queue.shift();
-          if (partNumber === undefined) break;
-          const start = (partNumber - 1) * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, file.size);
-          const chunk = file.slice(start, end);
-          const part = await uploadPartXHR(partNumber, chunk);
-          completedParts.push(part);
+          const pn = queue.shift();
+          if (pn !== undefined) {
+            await uploadPart(pn);
+          }
         }
-      };
+      });
 
-      await Promise.all(
-        Array.from({ length: Math.min(CONCURRENCY, totalParts) }, () => worker())
-      );
+      await Promise.all(workers);
 
-      setUploadPhase("Assemblage et finalisation...");
-      const completeRes = await completeStreamingUpload(
-        currentUploadId,
+      // 4. Complete multipart upload
+      setUploadPhase("Assemblage du fichier sur le serveur...");
+      const completeRes = await completeMultipartUpload(
         currentS3Key,
-        completedParts,
+        currentUploadId,
+        uploadedParts,
         projectName.trim(),
         file.size
       );
 
-      setUploadProgress(100);
       setSuccess(`Projet créé (id: ${completeRes.project_id}, statut: ${completeRes.status}).`);
       setProjectName("");
       setFile(null);
-      
+      setUploadProgress(100);
+
       // Auto-clear success message after 5 seconds
       setTimeout(() => {
         setSuccess(null);
       }, 5000);
 
     } catch (err) {
-      if (pollInterval) clearInterval(pollInterval);
       if (currentUploadId && currentS3Key) {
-        abortStreamingUpload(currentUploadId, currentS3Key).catch(console.error);
+        // Attempt to clean up S3 on failure
+        abortMultipartUpload(currentS3Key, currentUploadId).catch(console.error);
       }
       setError(err instanceof Error ? err.message : "Une erreur est survenue lors de l'upload.");
     } finally {
-      if (pollInterval) clearInterval(pollInterval);
       setLoading(false);
       submittingRef.current = false;
     }
   };
+
+  const pathname = usePathname();
 
   return (
     <UploadContext.Provider
@@ -185,22 +206,22 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-      {/* Global Upload Widget */}
-      {loading && (
+      {/* Global Upload Widget - shown only if loading and NOT on the home page */}
+      {loading && pathname !== "/" && (
         <div className="fixed bottom-6 right-6 z-50 bg-card rounded-lg shadow-xl border w-80 overflow-hidden animate-in slide-in-from-bottom-5">
-           <div className="p-4 space-y-3">
-             <div className="flex justify-between items-center">
-                 <h4 className="font-semibold text-sm">Upload en cours...</h4>
-                 <span className="text-xs text-muted-foreground font-mono">{Math.round(uploadProgress)}%</span>
-             </div>
-             <p className="text-xs text-muted-foreground truncate">{uploadPhase}</p>
-             <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div 
-                   className="h-full bg-primary transition-all duration-300 ease-out" 
-                   style={{ width: `${uploadProgress}%` }}
-                />
-             </div>
-           </div>
+          <div className="p-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <h4 className="font-semibold text-sm">Creation du projet</h4>
+              <span className="text-xs text-muted-foreground font-mono">{Math.round(uploadProgress)}%</span>
+            </div>
+            <p className="text-xs text-muted-foreground truncate">{uploadPhase}</p>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
         </div>
       )}
     </UploadContext.Provider>

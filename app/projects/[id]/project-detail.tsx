@@ -342,6 +342,11 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                     Parquet: {formatBytes(project.parquet_size_bytes)}
                   </span>
                 )}
+                {project.total_rows != null && (
+                  <span className="text-primary font-medium ml-2 border-l border-border pl-2" title="Lignes extraites depuis le fichier Parquet">
+                    Lignes: {project.total_rows.toLocaleString('fr-FR')}
+                  </span>
+                )}
               </p>
             )}
           </div>
