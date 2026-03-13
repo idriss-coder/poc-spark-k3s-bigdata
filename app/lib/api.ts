@@ -3,28 +3,24 @@ const API_URL = "/api/proxy";
 
 // --- Types ---
 
-export type UploadUrlResponse = {
-  upload_url: string;
-  s3_key: string;
-};
-
 export type UploadCompleteResponse = {
   project_id: number;
   status: string;
 };
 
-export type MultipartStartResponse = {
+export type StreamingInitiateResponse = {
   upload_id: string;
   s3_key: string;
 };
 
-export type MultipartUrlsResponse = {
-  urls: Record<number, string>;
+export type StreamingPartResponse = {
+  part_number: number;
+  etag: string;
 };
 
-export type MultipartPart = {
-  PartNumber: number;
-  ETag: string;
+export type StreamingCompletePart = {
+  part_number: number;
+  etag: string;
 };
 
 export type ProjectListItem = {
@@ -94,82 +90,49 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// --- Upload ---
+// --- Upload Streaming ---
 
-export async function getUploadUrl(): Promise<UploadUrlResponse> {
-  const res = await fetch(`${API_URL}/upload-url`, {
+export async function initiateStreamingUpload(
+  fileName: string,
+  fileType: string = "text/csv",
+  totalBytes: number = 0
+): Promise<StreamingInitiateResponse> {
+  const res = await fetch(`${API_URL}/upload/initiate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_name: fileName, file_type: fileType, total_bytes: totalBytes }),
   });
-  return handleResponse<UploadUrlResponse>(res);
+  return handleResponse<StreamingInitiateResponse>(res);
 }
 
-export async function createProject(s3Key: string, projectName: string, sizeBytes: number): Promise<{ project_id: number; status: string }> {
-  const res = await fetch(`${API_URL}/projects`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ s3_key: s3Key, project_name: projectName, csv_size_bytes: sizeBytes }),
-  });
-  return handleResponse<{ project_id: number; status: string }>(res);
-}
-
-export async function uploadComplete(
-  s3_key: string,
-  project_name: string,
-  sizeBytes: number
-): Promise<UploadCompleteResponse> {
-  const res = await fetch(`${API_URL}/upload-complete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ s3_key, project_name, csv_size_bytes: sizeBytes }),
-  });
-  return handleResponse<UploadCompleteResponse>(res);
-}
-
-// --- Multipart Upload ---
-
-export async function startMultipartUpload(
-  filename: string,
-  contentType: string = "text/csv"
-): Promise<MultipartStartResponse> {
-  const res = await fetch(`${API_URL}/upload-multipart/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, content_type: contentType }),
-  });
-  return handleResponse<MultipartStartResponse>(res);
-}
-
-export async function getMultipartUrls(
-  s3Key: string,
+export async function uploadStreamingPart(
   uploadId: string,
-  partNumbers: number[]
-): Promise<MultipartUrlsResponse> {
-  const res = await fetch(`${API_URL}/upload-multipart/urls`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      s3_key: s3Key,
-      upload_id: uploadId,
-      part_numbers: partNumbers,
-    }),
+  s3Key: string,
+  partNumber: number,
+  chunk: Blob
+): Promise<StreamingPartResponse> {
+  const url = `${API_URL}/upload/part?upload_id=${encodeURIComponent(uploadId)}&s3_key=${encodeURIComponent(s3Key)}&part_number=${partNumber}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    body: chunk,
+    headers: { "Content-Type": "application/octet-stream" },
   });
-  return handleResponse<MultipartUrlsResponse>(res);
+  return handleResponse<StreamingPartResponse>(res);
 }
 
-export async function completeMultipartUpload(
-  s3Key: string,
+export async function completeStreamingUpload(
   uploadId: string,
-  parts: MultipartPart[],
+  s3Key: string,
+  parts: StreamingCompletePart[],
   projectName: string,
   sizeBytes: number
 ): Promise<UploadCompleteResponse> {
-  const res = await fetch(`${API_URL}/upload-multipart/complete`, {
+  const res = await fetch(`${API_URL}/upload/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      s3_key: s3Key,
       upload_id: uploadId,
+      s3_key: s3Key,
       parts,
       project_name: projectName,
       csv_size_bytes: sizeBytes,
@@ -178,17 +141,29 @@ export async function completeMultipartUpload(
   return handleResponse<UploadCompleteResponse>(res);
 }
 
-export async function abortMultipartUpload(
-  s3Key: string,
-  uploadId: string
+export async function abortStreamingUpload(
+  uploadId: string,
+  s3Key: string
 ): Promise<void> {
   const res = await fetch(
-    `${API_URL}/upload-multipart/abort?s3_key=${encodeURIComponent(s3Key)}&upload_id=${encodeURIComponent(uploadId)}`,
-    {
-      method: "DELETE",
-    }
+    `${API_URL}/upload/abort?upload_id=${encodeURIComponent(uploadId)}&s3_key=${encodeURIComponent(s3Key)}`,
+    { method: "DELETE" }
   );
   return handleResponse<void>(res);
+}
+
+export type UploadProgressResponse = {
+  upload_id: string;
+  percentage: number;
+  parts_done: number;
+  parts_total: number;
+  bytes_done: number;
+  bytes_total: number;
+};
+
+export async function getUploadProgress(uploadId: string): Promise<UploadProgressResponse> {
+  const res = await fetch(`${API_URL}/upload/progress/${encodeURIComponent(uploadId)}`);
+  return handleResponse<UploadProgressResponse>(res);
 }
 
 // --- Projects ---

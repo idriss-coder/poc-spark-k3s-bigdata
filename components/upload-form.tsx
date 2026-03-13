@@ -1,18 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
-import {
-  startMultipartUpload,
-  getMultipartUrls,
-  completeMultipartUpload,
-  abortMultipartUpload,
-  MultipartPart,
-} from "@/app/lib/api";
+import { useRef, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { UploadSimple, FileCsv, Trash, CircleNotch } from "@phosphor-icons/react";
+import { useUpload } from "@/components/upload-provider";
 
 type UploadFormProps = {
   onSuccess?: () => void;
@@ -20,152 +14,32 @@ type UploadFormProps = {
 };
 
 export function UploadForm({ onSuccess, className }: UploadFormProps) {
-  const [projectName, setProjectName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadPhase, setUploadPhase] = useState("");
-  const submittingRef = useRef(false);
+  const {
+    projectName,
+    setProjectName,
+    file,
+    setFile,
+    loading,
+    error,
+    success,
+    uploadProgress,
+    uploadPhase,
+    startUpload,
+  } = useUpload();
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB per chunk
-  const MAX_CONCURRENCY = 3;
+  // Trigger onSuccess if the success state appears in the global context
+  useEffect(() => {
+    if (success && onSuccess) {
+      onSuccess();
+    }
+  }, [success, onSuccess]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setError(null);
-    setSuccess(null);
-
-    if (!projectName.trim()) {
-      setError("Indiquez un nom de projet.");
-      submittingRef.current = false;
-      return;
-    }
-    if (!file) {
-      setError("Sélectionnez un fichier CSV.");
-      submittingRef.current = false;
-      return;
-    }
-    setLoading(true);
-    let currentUploadId = "";
-    let currentS3Key = "";
-
-    try {
-      setUploadPhase("Initialisation de l'envoi...");
-      setUploadProgress(0);
-
-      // 1. Start multipart upload
-      const startRes = await startMultipartUpload(file.name, "text/csv");
-      currentUploadId = startRes.upload_id;
-      currentS3Key = startRes.s3_key;
-
-      const totalParts = Math.ceil(file.size / CHUNK_SIZE);
-      const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
-
-      // 2. Get pre-signed URLs
-      setUploadPhase("Génération des autorisations d'upload...");
-      const urlsRes = await getMultipartUrls(currentS3Key, currentUploadId, partNumbers);
-      const urls = urlsRes.urls;
-
-      setUploadPhase("Envoi des données en cours...");
-
-      const uploadedParts: MultipartPart[] = [];
-      let partsCompleted = 0;
-      let totalBytesUploaded = 0;
-
-      // Track progress per part
-      const partProgress = new Array(totalParts).fill(0);
-
-      // Helper for uploading a single part
-      const uploadPart = async (partNumber: number) => {
-        const start = (partNumber - 1) * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
-        const url = urls[partNumber];
-
-        return new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", url, true);
-
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              partProgress[partNumber - 1] = event.loaded;
-              const currentTotalUploaded = partProgress.reduce((a, b) => a + b, 0);
-              const percentComplete = (currentTotalUploaded / file.size) * 100;
-              setUploadProgress(percentComplete);
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              // Extract ETag from response headers.
-              // Note: CORS on the S3 bucket must have "ExposeHeaders": ["ETag"]
-              let etag = xhr.getResponseHeader("ETag");
-              if (!etag) {
-                console.warn(`ETag missing for part ${partNumber}`);
-                etag = `"fake-etag-for-testing"`; // fallback for local testing without correct CORS
-              } else {
-                // Remove extra quotes that some browsers might leave
-                etag = etag.replace(/(^"|"$)/g, "");
-              }
-
-              uploadedParts.push({ PartNumber: partNumber, ETag: etag });
-              partsCompleted++;
-              resolve();
-            } else {
-              reject(new Error(`Échec de l’envoi de la partie ${partNumber}`));
-            }
-          };
-
-          xhr.onerror = () => reject(new Error(`Erreur réseau (partie ${partNumber}).`));
-          xhr.send(chunk);
-        });
-      };
-
-      // 3. Upload parts concurrently
-      const queue = [...partNumbers];
-      const workers = Array(Math.min(MAX_CONCURRENCY, totalParts)).fill(0).map(async () => {
-        while (queue.length > 0) {
-          const pn = queue.shift();
-          if (pn !== undefined) {
-            await uploadPart(pn);
-          }
-        }
-      });
-
-      await Promise.all(workers);
-
-      // 4. Complete multipart upload
-      setUploadPhase("Assemblage du fichier sur le serveur...");
-      const completeRes = await completeMultipartUpload(
-        currentS3Key,
-        currentUploadId,
-        uploadedParts,
-        projectName.trim(),
-        file.size
-      );
-
-      setSuccess(`Projet créé (id: ${completeRes.project_id}, statut: ${completeRes.status}).`);
-      setProjectName("");
-      setFile(null);
-      setUploadProgress(100);
-      onSuccess?.();
-
-    } catch (err) {
-      if (currentUploadId && currentS3Key) {
-        // Attempt to clean up S3 on failure
-        abortMultipartUpload(currentS3Key, currentUploadId).catch(console.error);
-      }
-      setError(err instanceof Error ? err.message : "Une erreur est survenue lors de l'upload.");
-    } finally {
-      setLoading(false);
-      submittingRef.current = false;
-    }
+    await startUpload();
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -184,8 +58,6 @@ export function UploadForm({ onSuccess, className }: UploadFormProps) {
     const droppedFile = e.dataTransfer.files?.[0];
     if (droppedFile && droppedFile.name.endsWith('.csv')) {
       setFile(droppedFile);
-    } else {
-      setError("Veuillez sélectionner un fichier CSV valide.");
     }
   };
 
