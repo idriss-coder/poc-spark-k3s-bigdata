@@ -3,6 +3,32 @@ const API_URL = "/api/proxy";
 
 // --- Types ---
 
+// --- Vulnerability Analysis Types ---
+
+export type DataSchemaExhibition =
+  | "restricted_internal"
+  | "extended_internal"
+  | "restricted_external"
+  | "extended_external";
+
+export type DataSchemaEntry = {
+  id?: number;
+  name: string;
+  libelle?: string;
+  exhibition: DataSchemaExhibition;
+  use_in_analysis: boolean;
+};
+
+export type AnalysisType = "longitudinal" | "transversal";
+
+export type AnalysisConfig = {
+  risk_sheet_id: number;
+  datas: DataSchemaEntry[];
+  feared_event_columns: string[];
+  analysis_type: AnalysisType;
+  longitudinal_column: string | null;
+};
+
 export type UploadUrlResponse = {
   upload_url: string;
   s3_key: string;
