@@ -1,6 +1,6 @@
 "use client";
 
-import { type ColumnInfo, type AnalysisType } from "@/app/lib/api";
+import { type DataSchemaEntry, type AnalysisType } from "@/app/lib/api";
 import {
   Select,
   SelectContent,
@@ -17,7 +17,7 @@ import { ArrowsDownUp, ArrowRight } from "@phosphor-icons/react";
 interface AnalysisTypeConfigProps {
   analysisType: AnalysisType;
   longitudinalColumn: string | null;
-  columns: ColumnInfo[];
+  columns: DataSchemaEntry[];
   onChange: (type: AnalysisType, longitudinalColumn: string | null) => void;
 }
 
@@ -95,7 +95,7 @@ export function AnalysisTypeConfig({
               {columns.map((col) => (
                 <SelectItem key={col.name} value={col.name}>
                   <span className="font-mono">{col.name}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{col.type}</span>
+                  <span className="ml-2 text-xs text-muted-foreground capitalize">{col.exhibition.replace(/_/g, " ")}</span>
                 </SelectItem>
               ))}
             </SelectContent>

@@ -751,7 +751,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                           <AnalysisTypeConfig
                             analysisType={analysisType}
                             longitudinalColumn={longitudinalCol}
-                            columns={columns}
+                            columns={eligibleColumns}
                             onChange={handleAnalysisTypeChange}
                           />
                           <div className="flex justify-between pt-2">
