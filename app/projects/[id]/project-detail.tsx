@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   ArrowLeft,
   ChartBar,
@@ -37,7 +36,6 @@ import {
   Trash,
   Database,
   ShieldWarning,
-  Calculator,
   ArrowRight,
 } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
@@ -45,7 +43,6 @@ import { DataSchemaConfig } from "@/components/analysis/data-schema-config";
 import { FearedEventsConfig } from "@/components/analysis/feared-events-config";
 import { AnalysisTypeConfig } from "@/components/analysis/analysis-type-config";
 import { ConfigSummary } from "@/components/analysis/config-summary";
-import { AverageResults } from "@/components/analysis/average-results";
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -183,8 +180,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const [preview, setPreview] = useState<Record<string, unknown>[]>([]);
   const [columnsLoading, setColumnsLoading] = useState(false);
 
-  // --- Average analysis (Tab 2) ---
-  const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+  // --- Analysis ---
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -295,59 +291,57 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   }, [projectId]);
 
   // -------------------------------------------------------------------------
-  // Tab 2 — Average analysis handlers
+  // DR Vulnerability analysis submission
   // -------------------------------------------------------------------------
-  const toggleColumn = (col: string) => {
-    setSelectedColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(col)) next.delete(col); else next.add(col);
-      return next;
+  const handleVulnAnalyse = async () => {
+    const types = { sensible: [] as string[], ee: [] as string[], er: [] as string[], ie: [] as string[], ir: [] as string[] };
+    
+    schema.forEach(col => {
+      if (!col.use_in_analysis) return;
+
+      switch (col.exhibition) {
+        case "extended_internal":
+          types.ie.push(col.name);
+          break;
+        case "restricted_internal":
+          types.ir.push(col.name);
+          break;
+        case "extended_external":
+          types.ee.push(col.name);
+          break;
+        case "restricted_external":
+          types.er.push(col.name);
+          break;
+        default:
+          types.sensible.push(col.name);
+      }
+
+      if (fearedCols.has(col.name)) {
+        if (!types.sensible.includes(col.name)) {
+          types.sensible.push(col.name);
+        }
+      }
     });
-  };
 
-  const toggleAll = () => {
-    const numericCols = columns.filter((c) => isNumericType(c.type)).map((c) => c.name);
-    if (selectedColumns.size === numericCols.length) {
-      setSelectedColumns(new Set());
-    } else {
-      setSelectedColumns(new Set(numericCols));
-    }
-  };
-
-  const handleLaunchAnalysis = async () => {
-    if (selectedColumns.size === 0) {
-      setAnalysisError("Sélectionnez au moins une colonne.");
-      return;
-    }
     setAnalysisError(null);
     setAnalysisLoading(true);
     try {
-      await launchAnalysis(projectId, Array.from(selectedColumns));
+      await launchAnalysis(projectId, {
+        types,
+        analysis_type: analysisType,
+        longitudinal_column: analysisType === "longitudinal" ? longitudinalCol : null,
+      });
       const p = await fetchProject();
       if (p && p.status === "analysing") {
         setProgress({ status: "analysing", progress: 0, message: "Démarrage…", step: "analyse" });
         startPolling();
       }
+      setVulnStep("done");
     } catch (err) {
       setAnalysisError(err instanceof Error ? err.message : "Erreur lors du lancement.");
     } finally {
       setAnalysisLoading(false);
     }
-  };
-
-  // -------------------------------------------------------------------------
-  // Tab 1 — Vulnerability analysis handlers
-  // -------------------------------------------------------------------------
-  const handleVulnAnalyse = () => {
-    const config: AnalysisConfig = {
-      risk_sheet_id: projectId,
-      datas: schema,
-      feared_event_columns: Array.from(fearedCols),
-      analysis_type: analysisType,
-      longitudinal_column: analysisType === "longitudinal" ? longitudinalCol : null,
-    };
-    setVulnConfig(config);
-    setVulnStep("done");
   };
 
   const handleAnalysisTypeChange = (type: AnalysisType, col: string | null) => {
@@ -655,29 +649,21 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             </Card>
           )}
 
-          <Tabs defaultValue="vulnerability" className="space-y-4">
-
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="vulnerability" className="gap-1.5 text-xs sm:text-sm">
-                <ShieldWarning size={14} />
-                Analyse de vulnérabilité
-              </TabsTrigger>
-              <TabsTrigger value="average" className="gap-1.5 text-xs sm:text-sm">
-                <Calculator size={14} />
-                Calcul de moyenne
-              </TabsTrigger>
-            </TabsList>
-
-            {/* ==== TAB 1 — Vulnerability analysis ==== */}
-            <TabsContent value="vulnerability">
+          <div className="space-y-4 pt-2">
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
-                    Configuration de l&apos;analyse de vulnérabilité
+                    <ShieldWarning size={18} className="text-primary" />
+                    Configuration de l'analyse de vulnérabilité DR
                   </CardTitle>
                 </CardHeader>
 
                 <CardContent className="space-y-6">
+                  {analysisError && (
+                    <div className="p-3 bg-red-50 text-red-600 rounded-md text-sm mb-4">
+                      {analysisError}
+                    </div>
+                  )}
                   {columnsLoading ? (
                     <div className="space-y-2">
                       <Skeleton className="h-5 w-32" />
@@ -776,53 +762,19 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                         </div>
                       )}
 
-                      {/* DONE — show config JSON */}
-                      {vulnStep === "done" && vulnConfig && (
-                        <div className="space-y-4">
-                          <ConfigSummary config={vulnConfig} />
-                          <div className="flex justify-start pt-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => { setVulnStep(1); setVulnConfig(null); }}
-                            >
-                              Reconfigurer
-                            </Button>
-                          </div>
+                      {/* DONE — En cours d'analyse */}
+                      {vulnStep === "done" && (
+                        <div className="space-y-4 text-center py-6">
+                           <ShieldWarning size={48} className="mx-auto text-primary/40 mb-2" />
+                           <h3 className="font-semibold text-lg">Analyse DR en file d'attente</h3>
+                           <p className="text-sm text-muted-foreground">La configuration a été transmise à Spark. Vous pouvez suivre la progression en haut de la page.</p>
                         </div>
                       )}
                     </>
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-
-            {/* ==== TAB 2 — Average calculation ==== */}
-            <TabsContent value="average">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    Calcul de moyenne (Spark)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <AverageResults
-                    columns={columns}
-                    columnsLoading={columnsLoading}
-                    selectedColumns={selectedColumns}
-                    onToggleColumn={toggleColumn}
-                    onToggleAll={toggleAll}
-                    isNumericType={isNumericType}
-                    analysisLoading={analysisLoading}
-                    analysisError={analysisError}
-                    onLaunchAnalysis={handleLaunchAnalysis}
-                    result={result}
-                    resultLoading={resultLoading}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+          </div>
         </>
       )}
 
@@ -843,28 +795,11 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                 <Skeleton className="h-5 w-full" />
                 <Skeleton className="h-5 w-full" />
               </div>
-            ) : result && Object.keys(result.result).length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 px-3 font-medium text-foreground">Colonne</th>
-                      <th className="text-right py-2 px-3 font-medium text-foreground">Moyenne</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(result.result).map(([key, value]) => (
-                      <tr key={key} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                        <td className="py-2 px-3 text-foreground font-mono">{key}</td>
-                        <td className="py-2 px-3 text-right text-foreground tabular-nums">
-                          {typeof value === "number"
-                            ? value.toLocaleString("fr-FR", { maximumFractionDigits: 4 })
-                            : String(value)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            ) : result && result.result ? (
+              <div className="overflow-x-auto bg-muted/30 p-4 rounded-md border border-border">
+                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                  {JSON.stringify(result.result, null, 2)}
+                </pre>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Aucun résultat disponible.</p>

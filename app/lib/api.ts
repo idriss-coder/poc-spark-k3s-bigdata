@@ -100,7 +100,7 @@ export type ProgressResponse = {
 };
 
 export type ResultResponse = {
-  result: Record<string, number>;
+  result: any;
   created_at: string | null;
   ended_at: string | null;
 };
@@ -303,14 +303,26 @@ export function computeCompressionStats(
 
 // --- Analysis ---
 
+export type DRAnalysisPayload = {
+  types: {
+    sensible: string[];
+    ee: string[];
+    er: string[];
+    ie: string[];
+    ir: string[];
+  };
+  analysis_type: "transversal" | "longitudinal";
+  longitudinal_column: string | null;
+};
+
 export async function launchAnalysis(
   id: number,
-  columns: string[]
+  payload: DRAnalysisPayload
 ): Promise<AnalyseResponse> {
   const res = await fetch(`${API_URL}/projects/${id}/analyse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ columns }),
+    body: JSON.stringify(payload),
   });
   return handleResponse<AnalyseResponse>(res);
 }
