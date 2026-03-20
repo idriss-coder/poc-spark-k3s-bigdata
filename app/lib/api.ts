@@ -84,7 +84,7 @@ export type ColumnInfo = {
 
 export type ColumnsResponse = {
   columns: ColumnInfo[];
-  preview: Record<string, any>[];
+  preview: Record<string, unknown>[];
 };
 
 export type AnalyseResponse = {
@@ -100,7 +100,12 @@ export type ProgressResponse = {
 };
 
 export type ResultResponse = {
-  result: any;
+  status: string;
+  preview: unknown[];
+  result_s3_path: string | null;
+  result_format: string | null;
+  result_row_count: number | null;
+  download_url: string | null;
   created_at: string | null;
   ended_at: string | null;
 };

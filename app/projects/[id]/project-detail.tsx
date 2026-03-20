@@ -17,7 +17,6 @@ import {
   type ColumnInfo,
   type DataSchemaEntry,
   type AnalysisType,
-  type AnalysisConfig,
 } from "@/app/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,7 +41,6 @@ import { useRouter } from "next/navigation";
 import { DataSchemaConfig } from "@/components/analysis/data-schema-config";
 import { FearedEventsConfig } from "@/components/analysis/feared-events-config";
 import { AnalysisTypeConfig } from "@/components/analysis/analysis-type-config";
-import { ConfigSummary } from "@/components/analysis/config-summary";
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -105,12 +103,15 @@ function formatDuration(startISO: string, endISO: string): string {
   } catch { return ""; }
 }
 
-function isNumericType(type: string) {
-  const t = type.toLowerCase();
-  return (
-    t.includes("int") || t.includes("double") || t.includes("float") ||
-    t.includes("decimal") || t.includes("long") || t.includes("short")
-  );
+function getAnalysisPhaseLabel(progress: ProgressResponse | null) {
+  const message = progress?.message?.toLowerCase() ?? "";
+  if (message.includes("file d'attente")) return "Analyse en file d'attente";
+  if (message.includes("soumission")) return "Soumission du job Spark";
+  if (message.includes("driver spark en attente")) return "Démarrage du driver Spark";
+  if (message.includes("driver spark actif")) return "Exécution Spark distribuée";
+  if (message.includes("finalisation")) return "Finalisation et lecture de l'aperçu S3";
+  if (message.includes("failed") || message.includes("échec")) return "Analyse en échec";
+  return "Analyse Spark en cours";
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +201,6 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const [analysisType, setAnalysisType] = useState<AnalysisType>("transversal");
   const [longitudinalCol, setLongitudinalCol] = useState<string | null>(null);
   const [vulnStep, setVulnStep] = useState<1 | 2 | 3 | "done">(1);
-  const [vulnConfig, setVulnConfig] = useState<AnalysisConfig | null>(null);
 
   // -------------------------------------------------------------------------
   // Fetch helpers
@@ -461,7 +461,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                 <span>
                   {project.status === "converting"
                     ? progress?.progress === 0 ? "Démarrage du cluster Spark (allocation des ressources)..." : "Conversion CSV → Parquet"
-                    : progress?.progress === 0 ? "Démarrage du cluster Spark (réveil des exécuteurs)..." : "Analyse Spark en cours"}
+                    : getAnalysisPhaseLabel(progress)}
                 </span>
                 <span>{progress?.progress ?? 0}%</span>
               </div>
@@ -654,7 +654,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <ShieldWarning size={18} className="text-primary" />
-                    Configuration de l'analyse de vulnérabilité DR
+                    Configuration de l&apos;analyse de vulnérabilité DR
                   </CardTitle>
                 </CardHeader>
 
@@ -746,12 +746,12 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                             </Button>
                             <Button
                               onClick={handleVulnAnalyse}
-                              disabled={!canAnalyse}
+                              disabled={!canAnalyse || analysisLoading}
                               size="sm"
                               className="gap-1.5"
                             >
-                              <Lightning size={14} />
-                              Analyser
+                              {analysisLoading ? <Spinner size={14} className="animate-spin" /> : <Lightning size={14} />}
+                              {analysisLoading ? "Lancement..." : "Analyser"}
                             </Button>
                           </div>
                           {!canAnalyse && (
@@ -766,7 +766,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                       {vulnStep === "done" && (
                         <div className="space-y-4 text-center py-6">
                            <ShieldWarning size={48} className="mx-auto text-primary/40 mb-2" />
-                           <h3 className="font-semibold text-lg">Analyse DR en file d'attente</h3>
+                           <h3 className="font-semibold text-lg">Analyse DR en file d&apos;attente</h3>
                            <p className="text-sm text-muted-foreground">La configuration a été transmise à Spark. Vous pouvez suivre la progression en haut de la page.</p>
                         </div>
                       )}
@@ -795,11 +795,46 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                 <Skeleton className="h-5 w-full" />
                 <Skeleton className="h-5 w-full" />
               </div>
-            ) : result && result.result ? (
-              <div className="overflow-x-auto bg-muted/30 p-4 rounded-md border border-border">
-                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-                  {JSON.stringify(result.result, null, 2)}
-                </pre>
+            ) : result ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {result.result_format && (
+                    <Badge variant="outline" className="font-mono">
+                      {result.result_format.toUpperCase()}
+                    </Badge>
+                  )}
+                  {result.result_row_count != null && (
+                    <span>{result.result_row_count.toLocaleString("fr-FR")} ligne(s) de résultat</span>
+                  )}
+                  {result.result_s3_path && (
+                    <span className="font-mono break-all">{result.result_s3_path}</span>
+                  )}
+                </div>
+
+                {result.preview.length > 0 ? (
+                  <div className="overflow-x-auto bg-muted/30 rounded-md border border-border">
+                    <div className="px-4 py-3 border-b border-border text-xs font-medium">
+                      Aperçu des 20 premières lignes du résultat
+                    </div>
+                    <pre className="p-4 text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                      {JSON.stringify(result.preview, null, 2)}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Aucun aperçu léger disponible pour ce résultat.
+                  </p>
+                )}
+
+                {result.download_url && (
+                  <div className="flex justify-end">
+                    <Button asChild variant="outline" size="sm">
+                      <a href={result.download_url} target="_blank" rel="noreferrer">
+                        Télécharger le résultat complet
+                      </a>
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Aucun résultat disponible.</p>
