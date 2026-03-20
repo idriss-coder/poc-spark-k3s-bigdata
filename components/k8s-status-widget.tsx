@@ -276,7 +276,7 @@ export function K8sStatusWidget() {
                           <p className="text-xs text-slate-400 mt-1">Submit a job to see dynamic scaling in action.</p>
                         </div>
                       )}
-                      {sparkPods.map((pod) => (
+                      {sparkPods.filter(p=>p.status.toLowerCase()!=="completed").map((pod) => (
                         <Card key={pod.ready} className={cn("p-3 border-l-4  transition-all", pod.restarts === "Running" ? "border-l-primary" : "border-l-amber-500")}>
                           <div className="flex justify-between items-start">
                             <div>
