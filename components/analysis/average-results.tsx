@@ -140,11 +140,11 @@ export function AverageResults({
       </div>
 
       {/* Results table */}
-      {result && Object.keys(result.result).length > 0 && (
+      {result && result.preview.length > 0 && (
         <div className="mt-4 space-y-3">
           <h4 className="text-sm font-semibold flex items-center gap-2">
             <CheckCircle size={16} className="text-green-600" />
-            Résultats — Calcul de moyennes
+            Résultats — Aperçu
           </h4>
           {resultLoading ? (
             <div className="space-y-2">
@@ -156,18 +156,14 @@ export function AverageResults({
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left py-2 px-3 font-medium text-foreground">Colonne</th>
-                    <th className="text-right py-2 px-3 font-medium text-foreground">Moyenne</th>
+                    <th className="text-left py-2 px-3 font-medium text-foreground">Aperçu JSON</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(result.result).map(([key, value]) => (
-                    <tr key={key} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="py-2 px-3 text-foreground font-mono">{key}</td>
-                      <td className="py-2 px-3 text-right text-foreground tabular-nums">
-                        {typeof value === "number"
-                          ? value.toLocaleString("fr-FR", { maximumFractionDigits: 4 })
-                          : String(value)}
+                  {result.preview.map((value, index) => (
+                    <tr key={index} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2 px-3 text-foreground font-mono whitespace-pre-wrap">
+                        {JSON.stringify(value, null, 2)}
                       </td>
                     </tr>
                   ))}
