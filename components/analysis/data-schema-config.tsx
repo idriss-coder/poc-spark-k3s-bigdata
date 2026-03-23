@@ -46,9 +46,34 @@ export function DataSchemaConfig({ columns, schema, onChange }: DataSchemaConfig
   };
 
   const selectedCount = schema.filter((e) => e.use_in_analysis).length;
+  const allChecked = selectedCount === schema.length && schema.length > 0;
+  const selectAllState = allChecked ? true : selectedCount > 0 ? "indeterminate" : false;
+
+  const toggleAll = () => {
+    const nextValue = !allChecked;
+    onChange(schema.map((entry) => ({ ...entry, use_in_analysis: nextValue })));
+  };
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 pb-2 border-b border-border">
+        <Checkbox
+          id="schema-select-all"
+          checked={selectAllState}
+          onCheckedChange={toggleAll}
+        />
+        <label
+          htmlFor="schema-select-all"
+          className="text-xs font-medium text-foreground cursor-pointer"
+        >
+          Tout sélectionner ({schema.length})
+        </label>
+        {selectedCount > 0 && (
+          <Badge variant="secondary" className="ml-auto text-xs">
+            {selectedCount} sélectionnée{selectedCount > 1 ? "s" : ""}
+          </Badge>
+        )}
+      </div>
 
       {/* Table */}
       <div className="rounded-md border border-border overflow-hidden">

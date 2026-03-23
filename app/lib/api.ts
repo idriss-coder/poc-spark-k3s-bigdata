@@ -97,6 +97,9 @@ export type ProgressResponse = {
   progress: number;
   message: string | null;
   step: string | null;
+  phase: "queued" | "submitting" | "driver_pending" | "running" | "finalizing" | "completed" | "failed" | null;
+  progress_source: "spark_ui_jobs" | "spark_ui_stages" | "status_tracker" | "driver_logs" | "system" | null;
+  is_real_progress: boolean;
 };
 
 export type ResultResponse = {
