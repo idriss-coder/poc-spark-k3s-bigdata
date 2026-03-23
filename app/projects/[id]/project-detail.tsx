@@ -103,15 +103,38 @@ function formatDuration(startISO: string, endISO: string): string {
   } catch { return ""; }
 }
 
-function getAnalysisPhaseLabel(progress: ProgressResponse | null) {
-  const message = progress?.message?.toLowerCase() ?? "";
-  if (message.includes("file d'attente")) return "Analyse en file d'attente";
-  if (message.includes("soumission")) return "Soumission du job Spark";
-  if (message.includes("driver spark en attente")) return "Démarrage du driver Spark";
-  if (message.includes("driver spark actif")) return "Exécution Spark distribuée";
-  if (message.includes("finalisation")) return "Finalisation et lecture de l'aperçu S3";
-  if (message.includes("failed") || message.includes("échec")) return "Analyse en échec";
-  return "Analyse Spark en cours";
+function getProgressPhaseLabel(progress: ProgressResponse | null, projectStatus: string) {
+  const isConvert = progress?.step === "convert" || projectStatus === "converting";
+
+  switch (progress?.phase) {
+    case "queued":
+      return isConvert ? "Conversion en file d'attente" : "Analyse en file d'attente";
+    case "submitting":
+      return "Soumission du job Spark";
+    case "driver_pending":
+      return "Driver Spark en attente";
+    case "running":
+      return isConvert ? "Conversion CSV → Parquet" : "Exécution Spark distribuée";
+    case "finalizing":
+      return isConvert ? "Finalisation de la conversion" : "Finalisation de l'analyse";
+    case "failed":
+      return isConvert ? "Conversion en échec" : "Analyse en échec";
+    case "completed":
+      return isConvert ? "Conversion terminée" : "Analyse terminée";
+    default:
+      return isConvert ? "Conversion Spark" : "Analyse Spark";
+  }
+}
+
+function getDisplayedProgress(progress: ProgressResponse | null) {
+  if (!progress) return 0;
+  if (progress.phase === "finalizing") {
+    return progress.progress > 0 ? progress.progress : 99;
+  }
+  if (!progress.is_real_progress) {
+    return 0;
+  }
+  return progress.progress;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +156,57 @@ const STEPS = [
   { id: 2, label: "Événements redoutés" },
   { id: 3, label: "Type d'analyse" },
 ];
+
+type AnalysisSingleRow = {
+  variable: string;
+  individualization?: number;
+  inference?: number;
+  correlation?: number;
+  exploitability?: number;
+  at_risk?: {
+    total?: number;
+  } | null;
+};
+
+type AnalysisPreviewSection = {
+  sensibleVariable: string;
+  rows: AnalysisSingleRow[];
+};
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function extractAnalysisPreviewSections(preview: unknown[]): AnalysisPreviewSection[] {
+  return preview.flatMap((entry, index) => {
+    if (!isObjectRecord(entry)) return [];
+
+    const evaluations = isObjectRecord(entry.evaluations) ? entry.evaluations : null;
+    const single = Array.isArray(evaluations?.single) ? evaluations.single : [];
+    const rows = single.filter(isObjectRecord).map((row) => ({
+      variable: typeof row.variable === "string" ? row.variable : "—",
+      individualization: typeof row.individualization === "number" ? row.individualization : undefined,
+      inference: typeof row.inference === "number" ? row.inference : undefined,
+      correlation: typeof row.correlation === "number" ? row.correlation : undefined,
+      exploitability: typeof row.exploitability === "number" ? row.exploitability : undefined,
+      at_risk: isObjectRecord(row.at_risk)
+        ? { total: typeof row.at_risk.total === "number" ? row.at_risk.total : undefined }
+        : null,
+    }));
+
+    if (rows.length === 0) return [];
+
+    return [
+      {
+        sensibleVariable:
+          typeof entry.sensible_variable === "string"
+            ? entry.sensible_variable
+            : `Variable sensible ${index + 1}`,
+        rows,
+      },
+    ];
+  });
+}
 
 function Stepper({ current }: { current: number }) {
   return (
@@ -333,7 +407,15 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
       });
       const p = await fetchProject();
       if (p && p.status === "analysing") {
-        setProgress({ status: "analysing", progress: 0, message: "Démarrage…", step: "analyse" });
+        setProgress({
+          status: "analysing",
+          progress: 0,
+          message: "Analyse en file d'attente",
+          step: "analyse",
+          phase: "queued",
+          progress_source: "system",
+          is_real_progress: false,
+        });
         startPolling();
       }
       setVulnStep("done");
@@ -350,6 +432,8 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   };
 
   const eligibleColumns = schema.filter((e) => e.use_in_analysis);
+  const analysisPreviewSections = result ? extractAnalysisPreviewSections(result.preview) : [];
+  const displayedProgress = getDisplayedProgress(progress);
 
   // -------------------------------------------------------------------------
   // Can proceed checks
@@ -459,13 +543,11 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
-                  {project.status === "converting"
-                    ? progress?.progress === 0 ? "Démarrage du cluster Spark (allocation des ressources)..." : "Conversion CSV → Parquet"
-                    : getAnalysisPhaseLabel(progress)}
+                  {getProgressPhaseLabel(progress, project.status)}
                 </span>
-                <span>{progress?.progress ?? 0}%</span>
+                <span>{displayedProgress}%</span>
               </div>
-              <Progress value={progress?.progress ?? 0} className="h-2" />
+              <Progress value={displayedProgress} className="h-2" />
               {progress?.message && (
                 <p className="text-xs text-muted-foreground">{progress.message}</p>
               )}
@@ -811,15 +893,46 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                   )}
                 </div>
 
-                {result.preview.length > 0 ? (
-                  <div className="overflow-x-auto bg-muted/30 rounded-md border border-border">
-                    <div className="px-4 py-3 border-b border-border text-xs font-medium">
-                      Aperçu des 20 premières lignes du résultat
-                    </div>
-                    <pre className="p-4 text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-                      {JSON.stringify(result.preview, null, 2)}
-                    </pre>
+                {analysisPreviewSections.length > 0 ? (
+                  <div className="space-y-4">
+                    {analysisPreviewSections.map((section) => (
+                      <div key={section.sensibleVariable} className="overflow-hidden rounded-md border border-border bg-muted/20">
+                        <div className="px-4 py-3 border-b border-border text-sm font-medium">
+                          Variable sensible: <span className="font-mono">{section.sensibleVariable}</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm border-collapse">
+                            <thead className="bg-muted/40">
+                              <tr className="border-b border-border">
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Variable</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Individualization</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Inference</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Correlation</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Exploitability</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">At risk</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {section.rows.map((row) => (
+                                <tr key={`${section.sensibleVariable}-${row.variable}`} className="border-b border-border last:border-0 hover:bg-muted/30">
+                                  <td className="py-2.5 px-3 font-mono">{row.variable}</td>
+                                  <td className="py-2.5 px-3">{row.individualization ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.inference ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                ) : result.preview.length > 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    L&apos;aperçu du résultat est disponible, mais ne contient pas de section <span className="font-mono">single</span> exploitable pour l&apos;affichage.
+                  </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Aucun aperçu léger disponible pour ce résultat.
