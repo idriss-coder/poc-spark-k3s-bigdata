@@ -173,6 +173,23 @@ type AnalysisPreviewSection = {
   rows: AnalysisSingleRow[];
 };
 
+type AnalysisCombinedRow = {
+  scope: string;
+  variables: string[];
+  individualization?: number;
+  inference?: number;
+  correlation?: number;
+  exploitability?: number;
+  at_risk?: {
+    total?: number;
+  } | null;
+};
+
+type AnalysisCombinedSection = {
+  sensibleVariable: string;
+  rows: AnalysisCombinedRow[];
+};
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -193,6 +210,72 @@ function extractAnalysisPreviewSections(preview: unknown[]): AnalysisPreviewSect
         ? { total: typeof row.at_risk.total === "number" ? row.at_risk.total : undefined }
         : null,
     }));
+
+    if (rows.length === 0) return [];
+
+    return [
+      {
+        sensibleVariable:
+          typeof entry.sensible_variable === "string"
+            ? entry.sensible_variable
+            : `Variable sensible ${index + 1}`,
+        rows,
+      },
+    ];
+  });
+}
+
+function getCombinedScopeLabel(scope: string) {
+  switch (scope) {
+    case "extended_externals":
+      return "Externes étendues";
+    case "restricted_externals":
+      return "Externes restreintes";
+    case "extended_internals":
+      return "Internes étendues";
+    case "restricted_internals":
+      return "Internes restreintes";
+    default:
+      return scope;
+  }
+}
+
+function extractCombinedAnalysisPreviewSections(preview: unknown[]): AnalysisCombinedSection[] {
+  const combinedScopes = [
+    "extended_externals",
+    "restricted_externals",
+    "extended_internals",
+    "restricted_internals",
+  ] as const;
+
+  return preview.flatMap((entry, index) => {
+    if (!isObjectRecord(entry)) return [];
+
+    const evaluations = isObjectRecord(entry.evaluations) ? entry.evaluations : null;
+    if (!evaluations) return [];
+
+    const rows = combinedScopes.flatMap((scope) => {
+      const rawScope = evaluations[scope];
+      if (!isObjectRecord(rawScope)) return [];
+
+      const variables = Array.isArray(rawScope.variable)
+        ? rawScope.variable.filter((value): value is string => typeof value === "string")
+        : [];
+
+      if (variables.length === 0) return [];
+
+      return [{
+        scope: getCombinedScopeLabel(scope),
+        variables,
+        individualization: typeof rawScope.individualization === "number" ? rawScope.individualization : undefined,
+        inference: typeof rawScope.inference === "number" ? rawScope.inference : undefined,
+        correlation: typeof rawScope.correlation === "number" ? rawScope.correlation : undefined,
+        exploitability: typeof rawScope.exploitability === "number" ? rawScope.exploitability : undefined,
+        at_risk: isObjectRecord(rawScope.at_risk)
+          ? { total: typeof rawScope.at_risk.total === "number" ? rawScope.at_risk.total : undefined }
+          : null,
+      }];
+    });
 
     if (rows.length === 0) return [];
 
@@ -433,6 +516,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
 
   const eligibleColumns = schema.filter((e) => e.use_in_analysis);
   const analysisPreviewSections = result ? extractAnalysisPreviewSections(result.preview) : [];
+  const combinedAnalysisPreviewSections = result ? extractCombinedAnalysisPreviewSections(result.preview) : [];
   const displayedProgress = getDisplayedProgress(progress);
 
   // -------------------------------------------------------------------------
@@ -893,10 +977,10 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                   )}
                 </div>
 
-                {analysisPreviewSections.length > 0 ? (
+                {analysisPreviewSections.length > 0 || combinedAnalysisPreviewSections.length > 0 ? (
                   <div className="space-y-4">
                     {analysisPreviewSections.map((section) => (
-                      <div key={section.sensibleVariable} className="overflow-hidden rounded-md border border-border bg-muted/20">
+                      <div key={`single-${section.sensibleVariable}`} className="overflow-hidden rounded-md border border-border bg-muted/20">
                         <div className="px-4 py-3 border-b border-border text-sm font-medium">
                           Variable sensible: <span className="font-mono">{section.sensibleVariable}</span>
                         </div>
@@ -928,10 +1012,46 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                         </div>
                       </div>
                     ))}
+
+                    {combinedAnalysisPreviewSections.map((section) => (
+                      <div key={`combined-${section.sensibleVariable}`} className="overflow-hidden rounded-md border border-border bg-muted/20">
+                        <div className="px-4 py-3 border-b border-border text-sm font-medium">
+                          Variables combinées pour: <span className="font-mono">{section.sensibleVariable}</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm border-collapse">
+                            <thead className="bg-muted/40">
+                              <tr className="border-b border-border">
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Portée</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Variables combinées</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Individualization</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Inference</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Correlation</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Exploitability</th>
+                                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">At risk</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {section.rows.map((row) => (
+                                <tr key={`${section.sensibleVariable}-${row.scope}-${row.variables.join("-")}`} className="border-b border-border last:border-0 hover:bg-muted/30">
+                                  <td className="py-2.5 px-3">{row.scope}</td>
+                                  <td className="py-2.5 px-3 font-mono">{row.variables.join(", ")}</td>
+                                  <td className="py-2.5 px-3">{row.individualization ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.inference ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
+                                  <td className="py-2.5 px-3">{row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : result.preview.length > 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    L&apos;aperçu du résultat est disponible, mais ne contient pas de section <span className="font-mono">single</span> exploitable pour l&apos;affichage.
+                    L&apos;aperçu du résultat est disponible, mais ne contient pas de section exploitable pour l&apos;affichage.
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
