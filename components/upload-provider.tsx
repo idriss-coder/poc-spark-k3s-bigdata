@@ -8,19 +8,29 @@ import {
   completeMultipartUpload,
   abortMultipartUpload,
   MultipartPart,
+  createProjectFromParquet,
+  listExistingParquetSources,
+  type ExistingParquetSource,
 } from "@/app/lib/api";
 
 type UploadContextType = {
+  creationMode: "csv" | "parquet";
+  setCreationMode: (mode: "csv" | "parquet") => void;
   projectName: string;
   setProjectName: (name: string) => void;
   file: File | null;
   setFile: (file: File | null) => void;
+  parquetSources: ExistingParquetSource[];
+  parquetSourcesLoading: boolean;
+  selectedParquetSourceId: string;
+  setSelectedParquetSourceId: (value: string) => void;
   loading: boolean;
   error: string | null;
   success: string | null;
   uploadProgress: number;
   uploadPhase: string;
   startUpload: () => Promise<void>;
+  refreshParquetSources: () => Promise<void>;
   resetUploadState: () => void;
   setError: (error: string | null) => void;
 };
@@ -31,8 +41,12 @@ const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB
 const CONCURRENCY = 4;
 
 export function UploadProvider({ children }: { children: React.ReactNode }) {
+  const [creationMode, setCreationMode] = useState<"csv" | "parquet">("csv");
   const [projectName, setProjectName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [parquetSources, setParquetSources] = useState<ExistingParquetSource[]>([]);
+  const [parquetSourcesLoading, setParquetSourcesLoading] = useState(false);
+  const [selectedParquetSourceId, setSelectedParquetSourceId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -42,13 +56,27 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const submittingRef = useRef(false);
 
   const resetUploadState = useCallback(() => {
+    setCreationMode("csv");
     setProjectName("");
     setFile(null);
+    setSelectedParquetSourceId("");
     setLoading(false);
     setError(null);
     setSuccess(null);
     setUploadProgress(0);
     setUploadPhase("");
+  }, []);
+
+  const refreshParquetSources = useCallback(async () => {
+    setParquetSourcesLoading(true);
+    try {
+      const sources = await listExistingParquetSources();
+      setParquetSources(sources);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de charger les fichiers Parquet existants.");
+    } finally {
+      setParquetSourcesLoading(false);
+    }
   }, []);
 
   const startUpload = async () => {
@@ -57,8 +85,12 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       setError("Indiquez un nom de projet.");
       return;
     }
-    if (!file) {
+    if (creationMode === "csv" && !file) {
       setError("Sélectionnez un fichier CSV.");
+      return;
+    }
+    if (creationMode === "parquet" && !selectedParquetSourceId) {
+      setError("Sélectionnez un fichier Parquet existant.");
       return;
     }
 
@@ -71,6 +103,20 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     let currentS3Key = "";
 
     try {
+      if (creationMode === "parquet") {
+        setUploadPhase("Création du projet à partir du Parquet existant...");
+        setUploadProgress(25);
+        const completeRes = await createProjectFromParquet(Number(selectedParquetSourceId), projectName.trim());
+        setUploadProgress(100);
+        setSuccess(`Projet créé (id: ${completeRes.project_id}, statut: ${completeRes.status}).`);
+        setProjectName("");
+        setSelectedParquetSourceId("");
+        setTimeout(() => {
+          setSuccess(null);
+        }, 5000);
+        return;
+      }
+
       setUploadPhase("Initialisation de l'envoi...");
       setUploadProgress(0);
 
@@ -90,8 +136,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       setUploadPhase("Envoi des données en cours...");
 
       const uploadedParts: MultipartPart[] = [];
-      let partsCompleted = 0;
-
       // Track progress per part
       const partProgress = new Array(totalParts).fill(0);
 
@@ -129,7 +173,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               }
 
               uploadedParts.push({ PartNumber: partNumber, ETag: etag });
-              partsCompleted++;
               resolve();
             } else {
               reject(new Error(`Échec de l’envoi de la partie ${partNumber}`));
@@ -188,19 +231,30 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
 
   const pathname = usePathname();
 
+  useEffect(() => {
+    refreshParquetSources();
+  }, [refreshParquetSources]);
+
   return (
     <UploadContext.Provider
       value={{
+        creationMode,
+        setCreationMode,
         projectName,
         setProjectName,
         file,
         setFile,
+        parquetSources,
+        parquetSourcesLoading,
+        selectedParquetSourceId,
+        setSelectedParquetSourceId,
         loading,
         error,
         success,
         uploadProgress,
         uploadPhase,
         startUpload,
+        refreshParquetSources,
         resetUploadState,
         setError
       }}

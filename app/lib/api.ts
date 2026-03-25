@@ -53,6 +53,16 @@ export type MultipartPart = {
   ETag: string;
 };
 
+export type ExistingParquetSource = {
+  project_id: number;
+  project_name: string;
+  parquet_s3_path: string;
+  parquet_size_bytes: number | null;
+  total_rows?: number | null;
+  status: string;
+  created_at: string;
+};
+
 export type ProjectListItem = {
   id: number;
   name: string;
@@ -244,6 +254,23 @@ export async function deleteProject(id: number): Promise<void> {
     method: "DELETE",
   });
   return handleResponse<void>(res);
+}
+
+export async function listExistingParquetSources(): Promise<ExistingParquetSource[]> {
+  const res = await fetch(`${API_URL}/projects/parquet-sources`);
+  return handleResponse<ExistingParquetSource[]>(res);
+}
+
+export async function createProjectFromParquet(
+  sourceProjectId: number,
+  projectName: string
+): Promise<UploadCompleteResponse> {
+  const res = await fetch(`${API_URL}/projects/from-parquet`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_project_id: sourceProjectId, project_name: projectName }),
+  });
+  return handleResponse<UploadCompleteResponse>(res);
 }
 
 // --- Columns ---
