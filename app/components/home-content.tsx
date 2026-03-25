@@ -97,7 +97,7 @@ export function HomeContent() {
           POC Analyse CSV
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Créez un projet et uploadez un fichier CSV pour conversion et analyse.
+          Créez un projet depuis un CSV à convertir ou réutilisez un Parquet déjà disponible pour aller directement à l&apos;analyse.
         </p>
       </header>
 
