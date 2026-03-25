@@ -117,15 +117,20 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const csvFile = file;
+      if (!csvFile) {
+        throw new Error("Sélectionnez un fichier CSV.");
+      }
+
       setUploadPhase("Initialisation de l'envoi...");
       setUploadProgress(0);
 
       // 1. Start multipart upload
-      const startRes = await startMultipartUpload(file.name, "text/csv");
+      const startRes = await startMultipartUpload(csvFile.name, "text/csv");
       currentUploadId = startRes.upload_id;
       currentS3Key = startRes.s3_key;
 
-      const totalParts = Math.ceil(file.size / CHUNK_SIZE);
+      const totalParts = Math.ceil(csvFile.size / CHUNK_SIZE);
       const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1);
 
       // 2. Get pre-signed URLs
@@ -142,8 +147,8 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       // Helper for uploading a single part
       const uploadPart = async (partNumber: number) => {
         const start = (partNumber - 1) * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
+        const end = Math.min(start + CHUNK_SIZE, csvFile.size);
+        const chunk = csvFile.slice(start, end);
         const url = urls[partNumber];
 
         return new Promise<void>((resolve, reject) => {
@@ -154,7 +159,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
             if (event.lengthComputable) {
               partProgress[partNumber - 1] = event.loaded;
               const currentTotalUploaded = partProgress.reduce((a, b) => a + b, 0);
-              const percentComplete = (currentTotalUploaded / file.size) * 100;
+              const percentComplete = (currentTotalUploaded / csvFile.size) * 100;
               setUploadProgress(percentComplete);
             }
           };
@@ -204,7 +209,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         currentUploadId,
         uploadedParts,
         projectName.trim(),
-        file.size
+        csvFile.size
       );
 
       setSuccess(`Projet créé (id: ${completeRes.project_id}, statut: ${completeRes.status}).`);
