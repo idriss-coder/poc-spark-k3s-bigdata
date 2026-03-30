@@ -33,6 +33,27 @@ function formatDate(iso: string) {
   }
 }
 
+function renderProjectSize(project: ProjectListItem) {
+  if (project.csv_size_bytes && project.parquet_size_bytes) {
+    return (
+      <>
+        {formatBytes(project.csv_size_bytes)}{" "}
+        → <span className="text-primary font-medium">{formatBytes(project.parquet_size_bytes)}</span>
+      </>
+    );
+  }
+
+  if (project.parquet_size_bytes) {
+    return <span className="text-primary font-medium">Parquet: {formatBytes(project.parquet_size_bytes)}</span>;
+  }
+
+  if (project.csv_size_bytes) {
+    return <span>{formatBytes(project.csv_size_bytes)}</span>;
+  }
+
+  return "-";
+}
+
 export function HomeContent() {
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +155,7 @@ export function HomeContent() {
                   <tr className="border-b border-border">
                     <th className="text-left py-2 px-3 font-medium text-foreground">Nom</th>
                     <th className="text-left py-2 px-3 font-medium text-foreground">Statut</th>
-                    <th className="text-left py-2 px-3 font-medium text-foreground">Taille (CSV → Parquet)</th>
+                    <th className="text-left py-2 px-3 font-medium text-foreground">Taille</th>
                     <th className="text-left py-2 px-3 font-medium text-foreground">Créé le</th>
                     <th className="py-2 px-3 w-10"></th>
                   </tr>
@@ -158,12 +179,7 @@ export function HomeContent() {
                           </Badge>
                         </td>
                         <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-xs">
-                          {p.csv_size_bytes ? formatBytes(p.csv_size_bytes) : "-"}
-                          {p.parquet_size_bytes ? (
-                            <>
-                              {" "}→ <span className="text-primary font-medium">{formatBytes(p.parquet_size_bytes)}</span>
-                            </>
-                          ) : ""}
+                          {renderProjectSize(p)}
                         </td>
                         <td className="py-2 px-3 text-muted-foreground">
                           {formatDate(p.created_at)}
