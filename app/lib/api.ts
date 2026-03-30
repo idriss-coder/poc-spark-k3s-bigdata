@@ -70,6 +70,7 @@ export type ProjectListItem = {
   csv_size_bytes: number | null;
   parquet_size_bytes: number | null;
   total_rows?: number | null;
+  source_project_id?: number | null;
   created_at: string;
 };
 
@@ -82,6 +83,7 @@ export type ProjectDetail = {
   csv_size_bytes: number | null;
   parquet_size_bytes: number | null;
   total_rows?: number | null;
+  source_project_id?: number | null;
   created_at: string;
   convert_started_at: string | null;
   convert_ended_at: string | null;

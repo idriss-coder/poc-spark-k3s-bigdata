@@ -567,6 +567,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   }
 
   const isPolling = project.status === "converting" || project.status === "analysing";
+  const isParquetOnlyProject = !project.csv_s3_path && !!project.parquet_s3_path;
 
   // -------------------------------------------------------------------------
   // Render
@@ -590,11 +591,13 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             <p className="text-xs text-muted-foreground">
               Créé le {formatDate(project.created_at)} — ID {project.id}
             </p>
-            {(project.csv_size_bytes || project.parquet_size_bytes) && (
+            {(project.csv_size_bytes != null || project.parquet_size_bytes != null) && (
               <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                CSV: {project.csv_size_bytes ? formatBytes(project.csv_size_bytes) : "—"}
-                {project.parquet_size_bytes && (
-                  <span className="text-primary font-medium ml-2 border-l border-border pl-2">
+                {project.csv_size_bytes != null && (
+                  <span>CSV: {formatBytes(project.csv_size_bytes)}</span>
+                )}
+                {project.parquet_size_bytes != null && (
+                  <span className={project.csv_size_bytes != null ? "text-primary font-medium ml-2 border-l border-border pl-2" : "text-primary font-medium"}>
                     Parquet: {formatBytes(project.parquet_size_bytes)}
                   </span>
                 )}
@@ -603,6 +606,29 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                     Lignes: {project.total_rows.toLocaleString("fr-FR")}
                   </span>
                 )}
+              </p>
+            )}
+            {isParquetOnlyProject && (
+              <p className="text-xs text-muted-foreground">
+                Source: fichier Parquet existant
+                {project.source_project_id != null && (
+                  <span className="ml-1">
+                    depuis le projet{" "}
+                    <Link href={`/projects/${project.source_project_id}`} className="text-primary hover:underline">
+                      #{project.source_project_id}
+                    </Link>
+                  </span>
+                )}
+              </p>
+            )}
+            {project.csv_s3_path && (
+              <p className="text-xs text-muted-foreground font-mono break-all">
+                CSV: {project.csv_s3_path}
+              </p>
+            )}
+            {project.parquet_s3_path && (
+              <p className="text-xs text-muted-foreground font-mono break-all">
+                Parquet: {project.parquet_s3_path}
               </p>
             )}
           </div>
