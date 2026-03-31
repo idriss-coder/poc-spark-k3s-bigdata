@@ -1,4 +1,4 @@
-CONST BASE_IP = "http://3.91.241.127",
+CONST BASE_IP = "http://3.91.241.127";
 
 const CONFIG = {
   API_URL: BASE_IP,
