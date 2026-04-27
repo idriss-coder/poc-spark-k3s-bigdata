@@ -41,6 +41,7 @@ import { useRouter } from "next/navigation";
 import { DataSchemaConfig } from "@/components/analysis/data-schema-config";
 import { FearedEventsConfig } from "@/components/analysis/feared-events-config";
 import { AnalysisTypeConfig } from "@/components/analysis/analysis-type-config";
+import { CircularProgress } from "@/components/ui/circular-progress";
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -648,23 +649,24 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
         </CardHeader>
 
         {/* Progress bar */}
-        {isPolling && (
+        {isPolling ? (
           <CardContent className="pt-0 pb-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   {getProgressPhaseLabel(progress, project.status)}
                 </span>
-                <span>{displayedProgress}%</span>
+                {displayedProgress && displayedProgress > 0 ?<span>{displayedProgress}%</span> : <span/>}
               </div>
-              <Progress value={displayedProgress} className="h-2" />
+              {displayedProgress && displayedProgress > 0 ? (
+                <Progress value={displayedProgress} className="h-2" />
+              ) : <CircularProgress size={24} className="mx-auto text-primary" />}
               {progress?.message && (
                 <p className="text-xs text-muted-foreground">{progress.message}</p>
               )}
             </div>
           </CardContent>
-        )}
-
+        ) : <span />}
         {/* Execution timeline */}
         {(project.convert_ended_at || project.convert_started_at || (result && result.ended_at)) && (
           <CardContent className={`pt-0 ${isPolling ? "border-t mt-4 pt-4" : ""}`}>
