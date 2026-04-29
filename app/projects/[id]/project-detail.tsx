@@ -166,10 +166,7 @@ type AnalysisSingleRow = {
   inference?: number;
   correlation?: number;
   exploitability?: number;
-  at_risk?: {
-    total?: number;
-    artifact_id?: number;
-  } | null;
+  at_risk?: AtRiskSummary | null;
 };
 
 type AnalysisPreviewSection = {
@@ -184,10 +181,7 @@ type AnalysisCombinedRow = {
   inference?: number;
   correlation?: number;
   exploitability?: number;
-  at_risk?: {
-    total?: number;
-    artifact_id?: number;
-  } | null;
+  at_risk?: AtRiskSummary | null;
 };
 
 type AnalysisCombinedSection = {
@@ -195,8 +189,70 @@ type AnalysisCombinedSection = {
   rows: AnalysisCombinedRow[];
 };
 
+type AtRiskSummary = {
+  total?: number;
+  artifact_id?: number;
+  artifact_key?: string;
+  details_path?: string;
+  detail_row_count?: number;
+};
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function extractAtRiskSummary(value: unknown): AtRiskSummary | null {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+
+  return {
+    total: parseOptionalNumber(value.total),
+    artifact_id: parseOptionalNumber(value.artifact_id),
+    artifact_key: parseOptionalString(value.artifact_key),
+    details_path: parseOptionalString(value.details_path),
+    detail_row_count: parseOptionalNumber(value.detail_row_count),
+  };
+}
+
+function hasAtRiskDetails(summary: AtRiskSummary | null | undefined) {
+  if (!summary) {
+    return false;
+  }
+
+  return (
+    summary.artifact_id != null
+    || summary.artifact_key != null
+    || summary.details_path != null
+    || summary.detail_row_count != null
+  );
 }
 
 function extractAnalysisPreviewSections(preview: unknown[]): AnalysisPreviewSection[] {
@@ -207,16 +263,11 @@ function extractAnalysisPreviewSections(preview: unknown[]): AnalysisPreviewSect
     const single = Array.isArray(evaluations?.single) ? evaluations.single : [];
     const rows = single.filter(isObjectRecord).map((row) => ({
       variable: typeof row.variable === "string" ? row.variable : "—",
-      individualization: typeof row.individualization === "number" ? row.individualization : undefined,
-      inference: typeof row.inference === "number" ? row.inference : undefined,
-      correlation: typeof row.correlation === "number" ? row.correlation : undefined,
-      exploitability: typeof row.exploitability === "number" ? row.exploitability : undefined,
-      at_risk: isObjectRecord(row.at_risk)
-        ? {
-          total: typeof row.at_risk.total === "number" ? row.at_risk.total : undefined,
-          artifact_id: typeof row.at_risk.artifact_id === "number" ? row.at_risk.artifact_id : undefined,
-        }
-        : null,
+      individualization: parseOptionalNumber(row.individualization),
+      inference: parseOptionalNumber(row.inference),
+      correlation: parseOptionalNumber(row.correlation),
+      exploitability: parseOptionalNumber(row.exploitability),
+      at_risk: extractAtRiskSummary(row.at_risk),
     }));
 
     if (rows.length === 0) return [];
@@ -265,6 +316,39 @@ function formatAtRiskValue(value: unknown) {
   return String(value);
 }
 
+function buildAtRiskPagination(currentPage: number, totalPages: number) {
+  const safeTotalPages = Math.max(totalPages, 1);
+  const safeCurrentPage = Math.min(Math.max(currentPage, 1), safeTotalPages);
+  const pages = new Set<number>();
+
+  for (let page = 1; page <= Math.min(3, safeTotalPages); page += 1) {
+    pages.add(page);
+  }
+
+  pages.add(safeCurrentPage);
+  pages.add(safeTotalPages);
+
+  const sortedPages = Array.from(pages).sort((left, right) => left - right);
+  const items: Array<number | "ellipsis"> = [];
+  let previousPage: number | null = null;
+
+  sortedPages.forEach((page) => {
+    if (previousPage != null) {
+      const gap = page - previousPage;
+      if (gap === 2) {
+        items.push(previousPage + 1);
+      } else if (gap > 2) {
+        items.push("ellipsis");
+      }
+    }
+
+    items.push(page);
+    previousPage = page;
+  });
+
+  return items;
+}
+
 function extractCombinedAnalysisPreviewSections(preview: unknown[]): AnalysisCombinedSection[] {
   const combinedScopes = [
     "extended_externals",
@@ -292,16 +376,11 @@ function extractCombinedAnalysisPreviewSections(preview: unknown[]): AnalysisCom
       return [{
         scope: getCombinedScopeLabel(scope),
         variables,
-        individualization: typeof rawScope.individualization === "number" ? rawScope.individualization : undefined,
-        inference: typeof rawScope.inference === "number" ? rawScope.inference : undefined,
-        correlation: typeof rawScope.correlation === "number" ? rawScope.correlation : undefined,
-        exploitability: typeof rawScope.exploitability === "number" ? rawScope.exploitability : undefined,
-        at_risk: isObjectRecord(rawScope.at_risk)
-          ? {
-            total: typeof rawScope.at_risk.total === "number" ? rawScope.at_risk.total : undefined,
-            artifact_id: typeof rawScope.at_risk.artifact_id === "number" ? rawScope.at_risk.artifact_id : undefined,
-          }
-          : null,
+        individualization: parseOptionalNumber(rawScope.individualization),
+        inference: parseOptionalNumber(rawScope.inference),
+        correlation: parseOptionalNumber(rawScope.correlation),
+        exploitability: parseOptionalNumber(rawScope.exploitability),
+        at_risk: extractAtRiskSummary(rawScope.at_risk),
       }];
     });
 
@@ -581,15 +660,26 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   };
 
   const openAtRiskDialog = (
-    artifactId: number,
+    atRisk: AtRiskSummary,
     title: string,
     subtitle: string,
   ) => {
-    setSelectedAtRiskArtifactId(artifactId);
     setAtRiskDialogTitle(title);
     setAtRiskDialogSubtitle(subtitle);
     setAtRiskPage(1);
     setAtRiskDetails(null);
+    setAtRiskLoading(false);
+
+    if (atRisk.artifact_id == null) {
+      setSelectedAtRiskArtifactId(null);
+      setAtRiskError(
+        "Les métadonnées at risk sont bien présentes, mais cette réponse ne contient pas `artifact_id`, qui est requis par la route de détails paginés."
+      );
+      setAtRiskDialogOpen(true);
+      return;
+    }
+
+    setSelectedAtRiskArtifactId(atRisk.artifact_id);
     setAtRiskError(null);
     setAtRiskDialogOpen(true);
   };
@@ -606,6 +696,8 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const analysisPreviewSections = result ? extractAnalysisPreviewSections(result.preview) : [];
   const combinedAnalysisPreviewSections = result ? extractCombinedAnalysisPreviewSections(result.preview) : [];
   const displayedProgress = getDisplayedProgress(progress);
+  const atRiskTotalPages = Math.max(atRiskDetails?.total_pages ?? 0, 1);
+  const atRiskPaginationItems = buildAtRiskPagination(atRiskPage, atRiskTotalPages);
 
   // -------------------------------------------------------------------------
   // Can proceed checks
@@ -1120,12 +1212,12 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                   <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
                                   <td className="py-2.5 px-3">
-                                    {row.at_risk?.artifact_id != null && (row.at_risk.total ?? 0) > 0 ? (
+                                    {hasAtRiskDetails(row.at_risk) ? (
                                       <button
                                         type="button"
                                         className="font-medium text-primary hover:underline underline-offset-4"
                                         onClick={() => openAtRiskDialog(
-                                          row.at_risk!.artifact_id!,
+                                          row.at_risk!,
                                           `Personnes at risk - ${section.sensibleVariable}`,
                                           `Variable: ${row.variable}`,
                                         )}
@@ -1172,12 +1264,12 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                   <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
                                   <td className="py-2.5 px-3">
-                                    {row.at_risk?.artifact_id != null && (row.at_risk.total ?? 0) > 0 ? (
+                                    {hasAtRiskDetails(row.at_risk) ? (
                                       <button
                                         type="button"
                                         className="font-medium text-primary hover:underline underline-offset-4"
                                         onClick={() => openAtRiskDialog(
-                                          row.at_risk!.artifact_id!,
+                                          row.at_risk!,
                                           `Personnes at risk - ${section.sensibleVariable}`,
                                           `${row.scope} - ${row.variables.join(", ")}`,
                                         )}
@@ -1243,7 +1335,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
               </Button>
             </div>
 
-            <div className="overflow-y-auto px-5 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {atRiskLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-5 w-full" />
@@ -1253,7 +1345,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
               ) : atRiskError ? (
                 <p className="text-sm text-destructive">{atRiskError}</p>
               ) : atRiskDetails && atRiskDetails.items.length > 0 ? (
-                <div className="space-y-4">
+                <div>
                   <div className="overflow-x-auto rounded-md border border-border">
                     <table className="w-full text-sm border-collapse">
                       <thead className="bg-muted/40">
@@ -1274,35 +1366,6 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                       </tbody>
                     </table>
                   </div>
-
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">
-                      Pagination par 20 éléments pour éviter les chargements massifs.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setAtRiskPage((page) => Math.max(1, page - 1))}
-                        disabled={atRiskLoading || atRiskPage <= 1}
-                      >
-                        Précédent
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setAtRiskPage((page) => page + 1)}
-                        disabled={
-                          atRiskLoading
-                          || !atRiskDetails
-                          || atRiskDetails.total_pages === 0
-                          || atRiskPage >= atRiskDetails.total_pages
-                        }
-                      >
-                        Suivant
-                      </Button>
-                    </div>
-                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -1310,6 +1373,70 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                 </p>
               )}
             </div>
+
+            {atRiskDetails && atRiskDetails.items.length > 0 && (
+              <div className="border-t border-border bg-background px-5 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Pagination par 20 éléments pour éviter les chargements massifs.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAtRiskPage((page) => Math.max(1, page - 1))}
+                      disabled={atRiskLoading || atRiskPage <= 1}
+                    >
+                      Précédent
+                    </Button>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {atRiskPaginationItems.map((item, index) => {
+                        if (item === "ellipsis") {
+                          return (
+                            <span
+                              key={`ellipsis-${index}`}
+                              className="px-1 text-xs text-muted-foreground"
+                            >
+                              ...
+                            </span>
+                          );
+                        }
+
+                        const isActive = item === atRiskPage;
+
+                        return (
+                          <Button
+                            key={item}
+                            variant={isActive ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setAtRiskPage(item)}
+                            disabled={atRiskLoading || isActive}
+                            aria-current={isActive ? "page" : undefined}
+                          >
+                            {item}
+                          </Button>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAtRiskPage((page) => Math.min(atRiskTotalPages, page + 1))}
+                      disabled={
+                        atRiskLoading
+                        || !atRiskDetails
+                        || atRiskDetails.total_pages === 0
+                        || atRiskPage >= atRiskDetails.total_pages
+                      }
+                    >
+                      Suivant
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
