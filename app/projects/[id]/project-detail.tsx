@@ -152,7 +152,7 @@ function getAtRiskLoadingMessage(elapsedMs: number) {
 
   AT_RISK_LOADING_MESSAGES.forEach((step) => {
     if (elapsedMs >= step.afterMs) {
-      message = step.label;
+      message = step.label as typeof message;
     }
   });
 
