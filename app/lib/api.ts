@@ -1,5 +1,3 @@
-import CONFIG from "./config";
-
 // Use local NEXT route proxy for external APIs to avoid Mixed Content / CORS.
 const API_URL = "/api/proxy";
 
@@ -146,6 +144,10 @@ export type AtRiskDetailsResponse = {
   items: AtRiskDetailsItem[];
 };
 
+export type AtRiskDownloadPreparationResponse = {
+  download_url: string;
+};
+
 // --- Helpers ---
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -165,36 +167,6 @@ async function extractErrorDetail(res: Response): Promise<string> {
     // keep text
   }
   return typeof detail === "string" ? detail : JSON.stringify(detail);
-}
-
-function extractFilenameFromDisposition(
-  contentDisposition: string | null,
-  fallback: string,
-): string {
-  if (!contentDisposition) {
-    return fallback;
-  }
-
-  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utf8Match?.[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1]);
-    } catch {
-      return utf8Match[1];
-    }
-  }
-
-  const quotedMatch = contentDisposition.match(/filename=\"([^\"]+)\"/i);
-  if (quotedMatch?.[1]) {
-    return quotedMatch[1];
-  }
-
-  const simpleMatch = contentDisposition.match(/filename=([^;]+)/i);
-  if (simpleMatch?.[1]) {
-    return simpleMatch[1].trim();
-  }
-
-  return fallback;
 }
 
 // --- Upload ---
@@ -447,38 +419,16 @@ export async function getAtRiskDetails(
   return handleResponse<AtRiskDetailsResponse>(res);
 }
 
-export async function downloadAtRiskDetailsFile(
+export async function prepareAtRiskDetailsDownload(
   projectId: number,
   artifactId: number,
-): Promise<void> {
+): Promise<AtRiskDownloadPreparationResponse> {
   const res = await fetch(
-    `${CONFIG.API_URL}/projects/${projectId}/at-risk/${artifactId}/download`,
+    `${API_URL}/projects/${projectId}/at-risk/${artifactId}/download/prepare`,
     {
-      method: "GET",
+      method: "POST",
       cache: "no-store",
     },
   );
-
-  if (!res.ok) {
-    throw new Error(await extractErrorDetail(res));
-  }
-
-  const blob = await res.blob();
-  const filename = extractFilenameFromDisposition(
-    res.headers.get("content-disposition"),
-    `at-risk-${artifactId}.csv`,
-  );
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = objectUrl;
-  link.download = filename;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  window.setTimeout(() => {
-    URL.revokeObjectURL(objectUrl);
-  }, 1000);
+  return handleResponse<AtRiskDownloadPreparationResponse>(res);
 }

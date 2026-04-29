@@ -8,7 +8,7 @@ import {
   getProgress,
   getResult,
   getAtRiskDetails,
-  downloadAtRiskDetailsFile,
+  prepareAtRiskDetailsDownload,
   launchAnalysis,
   deleteProject,
   formatBytes,
@@ -745,12 +745,48 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
       return;
     }
 
+    const popup = window.open("", "_blank");
+    if (popup) {
+      popup.document.write(`
+        <!doctype html>
+        <html lang="fr">
+          <head>
+            <meta charset="utf-8" />
+            <title>Préparation du téléchargement</title>
+          </head>
+          <body style="margin:0;display:grid;min-height:100vh;place-items:center;background:#f8fafc;color:#0f172a;font-family:system-ui,sans-serif;">
+            <div style="max-width:28rem;padding:2rem;text-align:center;">
+              <div style="font-size:1rem;font-weight:600;">Préparation du fichier complet...</div>
+              <p style="margin:0.75rem 0 0;color:#475569;font-size:0.95rem;">Cet onglet démarrera automatiquement le téléchargement dès que le fichier sera prêt.</p>
+            </div>
+          </body>
+        </html>
+      `);
+      popup.document.close();
+    }
+
     setAtRiskDownloadLoading(true);
     setAtRiskDownloadError(null);
 
     try {
-      await downloadAtRiskDetailsFile(projectId, selectedAtRiskArtifactId);
+      const { download_url } = await prepareAtRiskDetailsDownload(projectId, selectedAtRiskArtifactId);
+
+      if (popup && !popup.closed) {
+        popup.location.href = download_url;
+      } else {
+        const link = document.createElement("a");
+        link.href = download_url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
     } catch (err) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
       setAtRiskDownloadError(
         err instanceof Error
           ? err.message
