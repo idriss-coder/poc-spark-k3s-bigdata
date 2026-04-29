@@ -410,3 +410,7 @@ export async function getAtRiskDetails(
   const res = await fetch(`${API_URL}/projects/${projectId}/at-risk/${artifactId}?${params.toString()}`);
   return handleResponse<AtRiskDetailsResponse>(res);
 }
+
+export function getAtRiskDownloadUrl(projectId: number, artifactId: number): string {
+  return `${API_URL}/projects/${projectId}/at-risk/${artifactId}/download`;
+}

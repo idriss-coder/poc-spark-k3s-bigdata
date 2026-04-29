@@ -8,6 +8,7 @@ import {
   getProgress,
   getResult,
   getAtRiskDetails,
+  getAtRiskDownloadUrl,
   launchAnalysis,
   deleteProject,
   formatBytes,
@@ -740,6 +741,9 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const atRiskTotalPages = Math.max(atRiskDetails?.total_pages ?? 0, 1);
   const atRiskPaginationItems = buildAtRiskPagination(atRiskPage, atRiskTotalPages);
   const atRiskLoadingMessage = getAtRiskLoadingMessage(atRiskLoadingElapsedMs);
+  const atRiskDownloadUrl = selectedAtRiskArtifactId != null
+    ? getAtRiskDownloadUrl(projectId, selectedAtRiskArtifactId)
+    : null;
 
   // -------------------------------------------------------------------------
   // Can proceed checks
@@ -1415,66 +1419,81 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
               )}
             </div>
 
-            {atRiskDetails && atRiskDetails.items.length > 0 && (
+            {atRiskDetails && (
               <div className="border-t border-border bg-background px-5 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-muted-foreground">
-                    Pagination par 20 éléments pour éviter les chargements massifs.
-                  </p>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAtRiskPage((page) => Math.max(1, page - 1))}
-                      disabled={atRiskLoading || atRiskPage <= 1}
-                    >
-                      Précédent
-                    </Button>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {atRiskPaginationItems.map((item, index) => {
-                        if (item === "ellipsis") {
-                          return (
-                            <span
-                              key={`ellipsis-${index}`}
-                              className="px-1 text-xs text-muted-foreground"
-                            >
-                              ...
-                            </span>
-                          );
-                        }
-
-                        const isActive = item === atRiskPage;
-
-                        return (
-                          <Button
-                            key={item}
-                            variant={isActive ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setAtRiskPage(item)}
-                            disabled={atRiskLoading || isActive}
-                            aria-current={isActive ? "page" : undefined}
-                          >
-                            {item}
-                          </Button>
-                        );
-                      })}
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAtRiskPage((page) => Math.min(atRiskTotalPages, page + 1))}
-                      disabled={
-                        atRiskLoading
-                        || !atRiskDetails
-                        || atRiskDetails.total_pages === 0
-                        || atRiskPage >= atRiskDetails.total_pages
-                      }
-                    >
-                      Suivant
-                    </Button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    {atRiskDownloadUrl && atRiskDetails.detail_row_count > 0 ? (
+                      <Button asChild variant="outline" size="sm">
+                        <a href={atRiskDownloadUrl} target="_blank" rel="noreferrer">
+                          Télécharger le fichier complet
+                        </a>
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled>
+                        Télécharger le fichier complet
+                      </Button>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Pagination par 20 éléments pour éviter les chargements massifs.
+                    </p>
                   </div>
+                  {atRiskDetails.total_pages > 0 ? (
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAtRiskPage((page) => Math.max(1, page - 1))}
+                        disabled={atRiskLoading || atRiskPage <= 1}
+                      >
+                        Précédent
+                      </Button>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {atRiskPaginationItems.map((item, index) => {
+                          if (item === "ellipsis") {
+                            return (
+                              <span
+                                key={`ellipsis-${index}`}
+                                className="px-1 text-xs text-muted-foreground"
+                              >
+                                ...
+                              </span>
+                            );
+                          }
+
+                          const isActive = item === atRiskPage;
+
+                          return (
+                            <Button
+                              key={item}
+                              variant={isActive ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setAtRiskPage(item)}
+                              disabled={atRiskLoading || isActive}
+                              aria-current={isActive ? "page" : undefined}
+                            >
+                              {item}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAtRiskPage((page) => Math.min(atRiskTotalPages, page + 1))}
+                        disabled={
+                          atRiskLoading
+                          || !atRiskDetails
+                          || atRiskDetails.total_pages === 0
+                          || atRiskPage >= atRiskDetails.total_pages
+                        }
+                      >
+                        Suivant
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )}
