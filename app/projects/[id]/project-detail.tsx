@@ -1222,7 +1222,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                           `Variable: ${row.variable}`,
                                         )}
                                       >
-                                        {row.at_risk.total?.toLocaleString("fr-FR") ?? "0"}
+                                        {row?.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}
                                       </button>
                                     ) : (
                                       row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"
@@ -1274,7 +1274,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                           `${row.scope} - ${row.variables.join(", ")}`,
                                         )}
                                       >
-                                        {row.at_risk.total?.toLocaleString("fr-FR") ?? "0"}
+                                        {row?.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}
                                       </button>
                                     ) : (
                                       row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"
