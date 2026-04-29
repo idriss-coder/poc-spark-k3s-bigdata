@@ -1,3 +1,5 @@
+import CONFIG from "./config";
+
 // Use local NEXT route proxy for external APIs to avoid Mixed Content / CORS.
 const API_URL = "/api/proxy";
 
@@ -148,17 +150,51 @@ export type AtRiskDetailsResponse = {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const json = JSON.parse(text);
-      detail = json.detail ?? text;
-    } catch {
-      // keep text
-    }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new Error(await extractErrorDetail(res));
   }
   return res.json() as Promise<T>;
+}
+
+async function extractErrorDetail(res: Response): Promise<string> {
+  const text = await res.text();
+  let detail = text;
+  try {
+    const json = JSON.parse(text);
+    detail = json.detail ?? text;
+  } catch {
+    // keep text
+  }
+  return typeof detail === "string" ? detail : JSON.stringify(detail);
+}
+
+function extractFilenameFromDisposition(
+  contentDisposition: string | null,
+  fallback: string,
+): string {
+  if (!contentDisposition) {
+    return fallback;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const quotedMatch = contentDisposition.match(/filename=\"([^\"]+)\"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+
+  const simpleMatch = contentDisposition.match(/filename=([^;]+)/i);
+  if (simpleMatch?.[1]) {
+    return simpleMatch[1].trim();
+  }
+
+  return fallback;
 }
 
 // --- Upload ---
@@ -411,6 +447,38 @@ export async function getAtRiskDetails(
   return handleResponse<AtRiskDetailsResponse>(res);
 }
 
-export function getAtRiskDownloadUrl(projectId: number, artifactId: number): string {
-  return `${API_URL}/projects/${projectId}/at-risk/${artifactId}/download`;
+export async function downloadAtRiskDetailsFile(
+  projectId: number,
+  artifactId: number,
+): Promise<void> {
+  const res = await fetch(
+    `${CONFIG.API_URL}/projects/${projectId}/at-risk/${artifactId}/download`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  );
+
+  if (!res.ok) {
+    throw new Error(await extractErrorDetail(res));
+  }
+
+  const blob = await res.blob();
+  const filename = extractFilenameFromDisposition(
+    res.headers.get("content-disposition"),
+    `at-risk-${artifactId}.csv`,
+  );
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1000);
 }

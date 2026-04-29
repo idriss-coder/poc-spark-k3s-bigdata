@@ -8,7 +8,7 @@ import {
   getProgress,
   getResult,
   getAtRiskDetails,
-  getAtRiskDownloadUrl,
+  downloadAtRiskDetailsFile,
   launchAnalysis,
   deleteProject,
   formatBytes,
@@ -494,6 +494,8 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const [atRiskError, setAtRiskError] = useState<string | null>(null);
   const [atRiskDetails, setAtRiskDetails] = useState<AtRiskDetailsResponse | null>(null);
   const [atRiskLoadingElapsedMs, setAtRiskLoadingElapsedMs] = useState(0);
+  const [atRiskDownloadLoading, setAtRiskDownloadLoading] = useState(false);
+  const [atRiskDownloadError, setAtRiskDownloadError] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Fetch helpers
@@ -710,6 +712,8 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     setAtRiskDetails(null);
     setAtRiskLoading(false);
     setAtRiskLoadingElapsedMs(0);
+    setAtRiskDownloadLoading(false);
+    setAtRiskDownloadError(null);
 
     if (atRisk.artifact_id == null) {
       setSelectedAtRiskArtifactId(null);
@@ -732,6 +736,29 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     setAtRiskError(null);
     setAtRiskLoading(false);
     setAtRiskLoadingElapsedMs(0);
+    setAtRiskDownloadLoading(false);
+    setAtRiskDownloadError(null);
+  };
+
+  const handleAtRiskDownload = async () => {
+    if (selectedAtRiskArtifactId == null) {
+      return;
+    }
+
+    setAtRiskDownloadLoading(true);
+    setAtRiskDownloadError(null);
+
+    try {
+      await downloadAtRiskDetailsFile(projectId, selectedAtRiskArtifactId);
+    } catch (err) {
+      setAtRiskDownloadError(
+        err instanceof Error
+          ? err.message
+          : "Impossible de préparer le téléchargement du fichier complet.",
+      );
+    } finally {
+      setAtRiskDownloadLoading(false);
+    }
   };
 
   const eligibleColumns = schema.filter((e) => e.use_in_analysis);
@@ -741,9 +768,6 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const atRiskTotalPages = Math.max(atRiskDetails?.total_pages ?? 0, 1);
   const atRiskPaginationItems = buildAtRiskPagination(atRiskPage, atRiskTotalPages);
   const atRiskLoadingMessage = getAtRiskLoadingMessage(atRiskLoadingElapsedMs);
-  const atRiskDownloadUrl = selectedAtRiskArtifactId != null
-    ? getAtRiskDownloadUrl(projectId, selectedAtRiskArtifactId)
-    : null;
 
   // -------------------------------------------------------------------------
   // Can proceed checks
@@ -1423,20 +1447,42 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
               <div className="border-t border-border bg-background px-5 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    {atRiskDownloadUrl && atRiskDetails.detail_row_count > 0 ? (
-                      <Button asChild variant="outline" size="sm">
-                        <a href={atRiskDownloadUrl} target="_blank" rel="noreferrer">
-                          Télécharger le fichier complet
-                        </a>
+                    {atRiskDetails.detail_row_count > 0 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAtRiskDownload}
+                        disabled={atRiskDownloadLoading || atRiskLoading}
+                      >
+                        {atRiskDownloadLoading ? (
+                          <>
+                            <Spinner size={14} className="animate-spin" />
+                            Préparation du fichier...
+                          </>
+                        ) : (
+                          "Télécharger le fichier complet"
+                        )}
                       </Button>
                     ) : (
                       <Button variant="outline" size="sm" disabled>
                         Télécharger le fichier complet
                       </Button>
                     )}
-                    <p className="text-xs text-muted-foreground">
-                      Pagination par 20 éléments pour éviter les chargements massifs.
-                    </p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        Pagination par 20 éléments pour éviter les chargements massifs.
+                      </p>
+                      {atRiskDownloadLoading ? (
+                        <p className="text-xs text-muted-foreground">
+                          Le téléchargement démarrera automatiquement dès que le fichier complet sera prêt.
+                        </p>
+                      ) : null}
+                      {atRiskDownloadError ? (
+                        <p className="text-xs text-destructive">
+                          {atRiskDownloadError}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                   {atRiskDetails.total_pages > 0 ? (
                     <div className="flex flex-wrap items-center justify-end gap-2">
