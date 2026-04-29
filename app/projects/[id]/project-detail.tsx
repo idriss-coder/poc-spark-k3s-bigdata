@@ -7,6 +7,7 @@ import {
   getProjectColumns,
   getProgress,
   getResult,
+  getAtRiskDetails,
   launchAnalysis,
   deleteProject,
   formatBytes,
@@ -14,6 +15,7 @@ import {
   type ProjectDetail,
   type ProgressResponse,
   type ResultResponse,
+  type AtRiskDetailsResponse,
   type ColumnInfo,
   type DataSchemaEntry,
   type AnalysisType,
@@ -166,6 +168,7 @@ type AnalysisSingleRow = {
   exploitability?: number;
   at_risk?: {
     total?: number;
+    artifact_id?: number;
   } | null;
 };
 
@@ -183,6 +186,7 @@ type AnalysisCombinedRow = {
   exploitability?: number;
   at_risk?: {
     total?: number;
+    artifact_id?: number;
   } | null;
 };
 
@@ -208,7 +212,10 @@ function extractAnalysisPreviewSections(preview: unknown[]): AnalysisPreviewSect
       correlation: typeof row.correlation === "number" ? row.correlation : undefined,
       exploitability: typeof row.exploitability === "number" ? row.exploitability : undefined,
       at_risk: isObjectRecord(row.at_risk)
-        ? { total: typeof row.at_risk.total === "number" ? row.at_risk.total : undefined }
+        ? {
+          total: typeof row.at_risk.total === "number" ? row.at_risk.total : undefined,
+          artifact_id: typeof row.at_risk.artifact_id === "number" ? row.at_risk.artifact_id : undefined,
+        }
         : null,
     }));
 
@@ -239,6 +246,23 @@ function getCombinedScopeLabel(scope: string) {
     default:
       return scope;
   }
+}
+
+function formatAtRiskValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(", ");
+  }
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 function extractCombinedAnalysisPreviewSections(preview: unknown[]): AnalysisCombinedSection[] {
@@ -273,7 +297,10 @@ function extractCombinedAnalysisPreviewSections(preview: unknown[]): AnalysisCom
         correlation: typeof rawScope.correlation === "number" ? rawScope.correlation : undefined,
         exploitability: typeof rawScope.exploitability === "number" ? rawScope.exploitability : undefined,
         at_risk: isObjectRecord(rawScope.at_risk)
-          ? { total: typeof rawScope.at_risk.total === "number" ? rawScope.at_risk.total : undefined }
+          ? {
+            total: typeof rawScope.at_risk.total === "number" ? rawScope.at_risk.total : undefined,
+            artifact_id: typeof rawScope.at_risk.artifact_id === "number" ? rawScope.at_risk.artifact_id : undefined,
+          }
           : null,
       }];
     });
@@ -359,6 +386,14 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const [analysisType, setAnalysisType] = useState<AnalysisType>("transversal");
   const [longitudinalCol, setLongitudinalCol] = useState<string | null>(null);
   const [vulnStep, setVulnStep] = useState<1 | 2 | 3 | "done">(1);
+  const [atRiskDialogOpen, setAtRiskDialogOpen] = useState(false);
+  const [atRiskDialogTitle, setAtRiskDialogTitle] = useState("");
+  const [atRiskDialogSubtitle, setAtRiskDialogSubtitle] = useState("");
+  const [selectedAtRiskArtifactId, setSelectedAtRiskArtifactId] = useState<number | null>(null);
+  const [atRiskPage, setAtRiskPage] = useState(1);
+  const [atRiskLoading, setAtRiskLoading] = useState(false);
+  const [atRiskError, setAtRiskError] = useState<string | null>(null);
+  const [atRiskDetails, setAtRiskDetails] = useState<AtRiskDetailsResponse | null>(null);
 
   // -------------------------------------------------------------------------
   // Fetch helpers
@@ -448,6 +483,36 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  useEffect(() => {
+    if (!atRiskDialogOpen || selectedAtRiskArtifactId == null) return;
+
+    let cancelled = false;
+
+    (async () => {
+      setAtRiskLoading(true);
+      setAtRiskError(null);
+      try {
+        const data = await getAtRiskDetails(projectId, selectedAtRiskArtifactId, atRiskPage, 20);
+        if (!cancelled) {
+          setAtRiskDetails(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAtRiskDetails(null);
+          setAtRiskError(err instanceof Error ? err.message : "Impossible de charger les personnes at risk.");
+        }
+      } finally {
+        if (!cancelled) {
+          setAtRiskLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [atRiskDialogOpen, atRiskPage, projectId, selectedAtRiskArtifactId]);
+
   // -------------------------------------------------------------------------
   // DR Vulnerability analysis submission
   // -------------------------------------------------------------------------
@@ -513,6 +578,28 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const handleAnalysisTypeChange = (type: AnalysisType, col: string | null) => {
     setAnalysisType(type);
     setLongitudinalCol(col);
+  };
+
+  const openAtRiskDialog = (
+    artifactId: number,
+    title: string,
+    subtitle: string,
+  ) => {
+    setSelectedAtRiskArtifactId(artifactId);
+    setAtRiskDialogTitle(title);
+    setAtRiskDialogSubtitle(subtitle);
+    setAtRiskPage(1);
+    setAtRiskDetails(null);
+    setAtRiskError(null);
+    setAtRiskDialogOpen(true);
+  };
+
+  const closeAtRiskDialog = () => {
+    setAtRiskDialogOpen(false);
+    setSelectedAtRiskArtifactId(null);
+    setAtRiskDetails(null);
+    setAtRiskError(null);
+    setAtRiskLoading(false);
   };
 
   const eligibleColumns = schema.filter((e) => e.use_in_analysis);
@@ -1032,7 +1119,23 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                   <td className="py-2.5 px-3">{row.inference ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
-                                  <td className="py-2.5 px-3">{row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}</td>
+                                  <td className="py-2.5 px-3">
+                                    {row.at_risk?.artifact_id != null && (row.at_risk.total ?? 0) > 0 ? (
+                                      <button
+                                        type="button"
+                                        className="font-medium text-primary hover:underline underline-offset-4"
+                                        onClick={() => openAtRiskDialog(
+                                          row.at_risk!.artifact_id!,
+                                          `Personnes at risk - ${section.sensibleVariable}`,
+                                          `Variable: ${row.variable}`,
+                                        )}
+                                      >
+                                        {row.at_risk.total?.toLocaleString("fr-FR") ?? "0"}
+                                      </button>
+                                    ) : (
+                                      row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"
+                                    )}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1068,7 +1171,23 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                                   <td className="py-2.5 px-3">{row.inference ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.correlation ?? "—"}</td>
                                   <td className="py-2.5 px-3">{row.exploitability ?? "—"}</td>
-                                  <td className="py-2.5 px-3">{row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"}</td>
+                                  <td className="py-2.5 px-3">
+                                    {row.at_risk?.artifact_id != null && (row.at_risk.total ?? 0) > 0 ? (
+                                      <button
+                                        type="button"
+                                        className="font-medium text-primary hover:underline underline-offset-4"
+                                        onClick={() => openAtRiskDialog(
+                                          row.at_risk!.artifact_id!,
+                                          `Personnes at risk - ${section.sensibleVariable}`,
+                                          `${row.scope} - ${row.variables.join(", ")}`,
+                                        )}
+                                      >
+                                        {row.at_risk.total?.toLocaleString("fr-FR") ?? "0"}
+                                      </button>
+                                    ) : (
+                                      row.at_risk?.total?.toLocaleString("fr-FR") ?? "0"
+                                    )}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1102,6 +1221,97 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {atRiskDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
+          <div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold">{atRiskDialogTitle}</h3>
+                <p className="text-sm text-muted-foreground">{atRiskDialogSubtitle}</p>
+                {atRiskDetails && (
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <span>{atRiskDetails.at_risk_total.toLocaleString("fr-FR")} personne(s) at risk</span>
+                    <span>{atRiskDetails.detail_row_count.toLocaleString("fr-FR")} ligne(s) de détail</span>
+                    <span>Page {atRiskDetails.page} / {Math.max(atRiskDetails.total_pages, 1)}</span>
+                  </div>
+                )}
+              </div>
+              <Button variant="outline" size="sm" onClick={closeAtRiskDialog}>
+                Fermer
+              </Button>
+            </div>
+
+            <div className="overflow-y-auto px-5 py-4">
+              {atRiskLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-full" />
+                  <Skeleton className="h-5 w-full" />
+                  <Skeleton className="h-5 w-3/4" />
+                </div>
+              ) : atRiskError ? (
+                <p className="text-sm text-destructive">{atRiskError}</p>
+              ) : atRiskDetails && atRiskDetails.items.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="overflow-x-auto rounded-md border border-border">
+                    <table className="w-full text-sm border-collapse">
+                      <thead className="bg-muted/40">
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Condition</th>
+                          <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Valeur sensible</th>
+                          <th className="text-left py-2.5 px-3 font-medium text-muted-foreground text-xs">Occurrences</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {atRiskDetails.items.map((item, index) => (
+                          <tr key={`${index}-${formatAtRiskValue(item.condition_value)}`} className="border-b border-border last:border-0 hover:bg-muted/30">
+                            <td className="py-2.5 px-3 font-mono">{formatAtRiskValue(item.condition_value)}</td>
+                            <td className="py-2.5 px-3">{formatAtRiskValue(item.sensible_value)}</td>
+                            <td className="py-2.5 px-3">{item.count.toLocaleString("fr-FR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      Pagination par 20 éléments pour éviter les chargements massifs.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAtRiskPage((page) => Math.max(1, page - 1))}
+                        disabled={atRiskLoading || atRiskPage <= 1}
+                      >
+                        Précédent
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAtRiskPage((page) => page + 1)}
+                        disabled={
+                          atRiskLoading
+                          || !atRiskDetails
+                          || atRiskDetails.total_pages === 0
+                          || atRiskPage >= atRiskDetails.total_pages
+                        }
+                      >
+                        Suivant
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Aucun détail at risk disponible pour cette ligne.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ------------------------------------------------------------------ */}

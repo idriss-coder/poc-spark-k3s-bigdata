@@ -125,6 +125,25 @@ export type ResultResponse = {
   ended_at: string | null;
 };
 
+export type AtRiskDetailsItem = {
+  condition_value: unknown;
+  sensible_value: unknown;
+  count: number;
+};
+
+export type AtRiskDetailsResponse = {
+  artifact_id: number;
+  sensitive_variable: string;
+  scope: string;
+  variables: string[];
+  at_risk_total: number;
+  detail_row_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  items: AtRiskDetailsItem[];
+};
+
 // --- Helpers ---
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -376,4 +395,18 @@ export async function getProgress(id: number): Promise<ProgressResponse> {
 export async function getResult(id: number): Promise<ResultResponse> {
   const res = await fetch(`${API_URL}/projects/${id}/result`);
   return handleResponse<ResultResponse>(res);
+}
+
+export async function getAtRiskDetails(
+  projectId: number,
+  artifactId: number,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<AtRiskDetailsResponse> {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const res = await fetch(`${API_URL}/projects/${projectId}/at-risk/${artifactId}?${params.toString()}`);
+  return handleResponse<AtRiskDetailsResponse>(res);
 }
