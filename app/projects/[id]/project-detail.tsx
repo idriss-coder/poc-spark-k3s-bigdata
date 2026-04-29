@@ -140,6 +140,25 @@ function getDisplayedProgress(progress: ProgressResponse | null) {
   return progress.progress;
 }
 
+const AT_RISK_LOADING_MESSAGES = [
+  { afterMs: 0, label: "Ouverture de la connexion aux détails at risk..." },
+  { afterMs: 2000, label: "Lecture des personnes at risk..." },
+  { afterMs: 4500, label: "Streaming des détails depuis S3..." },
+  { afterMs: 8000, label: "Préparation de l'affichage..." },
+] as const;
+
+function getAtRiskLoadingMessage(elapsedMs: number) {
+  let message = AT_RISK_LOADING_MESSAGES[0].label;
+
+  AT_RISK_LOADING_MESSAGES.forEach((step) => {
+    if (elapsedMs >= step.afterMs) {
+      message = step.label;
+    }
+  });
+
+  return message;
+}
+
 // ---------------------------------------------------------------------------
 // Build default schema entries from columns
 // ---------------------------------------------------------------------------
@@ -473,6 +492,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const [atRiskLoading, setAtRiskLoading] = useState(false);
   const [atRiskError, setAtRiskError] = useState<string | null>(null);
   const [atRiskDetails, setAtRiskDetails] = useState<AtRiskDetailsResponse | null>(null);
+  const [atRiskLoadingElapsedMs, setAtRiskLoadingElapsedMs] = useState(0);
 
   // -------------------------------------------------------------------------
   // Fetch helpers
@@ -561,6 +581,25 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  useEffect(() => {
+    if (!atRiskLoading) {
+      setAtRiskLoadingElapsedMs(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const updateElapsed = () => {
+      setAtRiskLoadingElapsedMs(Date.now() - startedAt);
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [atRiskLoading, atRiskPage, selectedAtRiskArtifactId]);
 
   useEffect(() => {
     if (!atRiskDialogOpen || selectedAtRiskArtifactId == null) return;
@@ -669,6 +708,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     setAtRiskPage(1);
     setAtRiskDetails(null);
     setAtRiskLoading(false);
+    setAtRiskLoadingElapsedMs(0);
 
     if (atRisk.artifact_id == null) {
       setSelectedAtRiskArtifactId(null);
@@ -690,6 +730,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
     setAtRiskDetails(null);
     setAtRiskError(null);
     setAtRiskLoading(false);
+    setAtRiskLoadingElapsedMs(0);
   };
 
   const eligibleColumns = schema.filter((e) => e.use_in_analysis);
@@ -698,6 +739,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
   const displayedProgress = getDisplayedProgress(progress);
   const atRiskTotalPages = Math.max(atRiskDetails?.total_pages ?? 0, 1);
   const atRiskPaginationItems = buildAtRiskPagination(atRiskPage, atRiskTotalPages);
+  const atRiskLoadingMessage = getAtRiskLoadingMessage(atRiskLoadingElapsedMs);
 
   // -------------------------------------------------------------------------
   // Can proceed checks
@@ -1317,7 +1359,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
 
       {atRiskDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
-          <div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
+          <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
               <div className="space-y-1">
                 <h3 className="text-base font-semibold">{atRiskDialogTitle}</h3>
@@ -1337,10 +1379,9 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {atRiskLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-5 w-full" />
-                  <Skeleton className="h-5 w-full" />
-                  <Skeleton className="h-5 w-3/4" />
+                <div className="flex min-h-[240px] flex-col items-center justify-center gap-4 text-center">
+                  <CircularProgress size={34} className="text-primary" />
+                  <p className="text-sm text-muted-foreground">{atRiskLoadingMessage}</p>
                 </div>
               ) : atRiskError ? (
                 <p className="text-sm text-destructive">{atRiskError}</p>
