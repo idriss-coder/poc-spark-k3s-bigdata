@@ -753,11 +753,82 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
           <head>
             <meta charset="utf-8" />
             <title>Préparation du téléchargement</title>
+            <style>
+              :root {
+                color-scheme: light;
+              }
+
+              * {
+                box-sizing: border-box;
+              }
+
+              body {
+                margin: 0;
+                display: grid;
+                min-height: 100vh;
+                place-items: center;
+                background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%);
+                color: #0f172a;
+                font-family: system-ui, sans-serif;
+              }
+
+              .download-wait-card {
+                width: min(28rem, calc(100vw - 2rem));
+                padding: 2rem 1.75rem;
+                border: 1px solid #dbeafe;
+                border-radius: 1.25rem;
+                background: rgba(255, 255, 255, 0.92);
+                box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+                text-align: center;
+              }
+
+              .download-wait-loader {
+                width: 2.75rem;
+                height: 2.75rem;
+                margin: 0 auto 1rem;
+                border: 3px solid #cbd5e1;
+                border-top-color: #2563eb;
+                border-radius: 999px;
+                animation: wait-spin 0.85s linear infinite;
+              }
+
+              .download-wait-title {
+                font-size: 1rem;
+                font-weight: 600;
+                letter-spacing: -0.01em;
+              }
+
+              .download-wait-text {
+                margin: 0.75rem 0 0;
+                color: #475569;
+                font-size: 0.95rem;
+                line-height: 1.5;
+              }
+
+              .download-wait-time {
+                display: inline-flex;
+                margin-top: 0.9rem;
+                padding: 0.35rem 0.7rem;
+                border-radius: 999px;
+                background: #eff6ff;
+                color: #1d4ed8;
+                font-size: 0.8rem;
+                font-weight: 600;
+              }
+
+              @keyframes wait-spin {
+                to {
+                  transform: rotate(360deg);
+                }
+              }
+            </style>
           </head>
-          <body style="margin:0;display:grid;min-height:100vh;place-items:center;background:#f8fafc;color:#0f172a;font-family:system-ui,sans-serif;">
-            <div style="max-width:28rem;padding:2rem;text-align:center;">
-              <div style="font-size:1rem;font-weight:600;">Préparation du fichier complet...</div>
-              <p style="margin:0.75rem 0 0;color:#475569;font-size:0.95rem;">Cet onglet démarrera automatiquement le téléchargement dès que le fichier sera prêt.</p>
+          <body>
+            <div class="download-wait-card">
+              <div class="download-wait-loader" aria-hidden="true"></div>
+              <div class="download-wait-title">Préparation du fichier...</div>
+              <p class="download-wait-text">Le téléchargement démarre automatiquement dès qu'il est prêt.</p>
+              <div class="download-wait-time">En général 2 à 5 min</div>
             </div>
           </body>
         </html>
