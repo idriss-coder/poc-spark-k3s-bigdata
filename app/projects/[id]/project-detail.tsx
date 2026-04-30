@@ -745,123 +745,22 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
       return;
     }
 
-    const popup = window.open("", "_blank");
-    if (popup) {
-      popup.document.write(`
-        <!doctype html>
-        <html lang="fr">
-          <head>
-            <meta charset="utf-8" />
-            <title>Préparation du téléchargement</title>
-            <style>
-              :root {
-                color-scheme: light;
-              }
-
-              * {
-                box-sizing: border-box;
-              }
-
-              body {
-                margin: 0;
-                display: grid;
-                min-height: 100vh;
-                place-items: center;
-                background: linear-gradient(180deg, #f8fafc 0%, #eef4ff 100%);
-                color: #0f172a;
-                font-family: system-ui, sans-serif;
-              }
-
-              .download-wait-card {
-                width: min(28rem, calc(100vw - 2rem));
-                padding: 2rem 1.75rem;
-                border: 1px solid #dbeafe;
-                border-radius: 1.25rem;
-                background: rgba(255, 255, 255, 0.92);
-                box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
-                text-align: center;
-              }
-
-              .download-wait-loader {
-                width: 2.75rem;
-                height: 2.75rem;
-                margin: 0 auto 1rem;
-                border: 3px solid #cbd5e1;
-                border-top-color: #2563eb;
-                border-radius: 999px;
-                animation: wait-spin 0.85s linear infinite;
-              }
-
-              .download-wait-title {
-                font-size: 1rem;
-                font-weight: 600;
-                letter-spacing: -0.01em;
-              }
-
-              .download-wait-text {
-                margin: 0.75rem 0 0;
-                color: #475569;
-                font-size: 0.95rem;
-                line-height: 1.5;
-              }
-
-              .download-wait-time {
-                display: inline-flex;
-                margin-top: 0.9rem;
-                padding: 0.35rem 0.7rem;
-                border-radius: 999px;
-                background: #eff6ff;
-                color: #1d4ed8;
-                font-size: 0.8rem;
-                font-weight: 600;
-              }
-
-              @keyframes wait-spin {
-                to {
-                  transform: rotate(360deg);
-                }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="download-wait-card">
-              <div class="download-wait-loader" aria-hidden="true"></div>
-              <div class="download-wait-title">Préparation du fichier...</div>
-              <p class="download-wait-text">Le téléchargement démarre automatiquement dès qu'il est prêt.</p>
-              <div class="download-wait-time">En général 2 à 5 min</div>
-            </div>
-          </body>
-        </html>
-      `);
-      popup.document.close();
-    }
-
     setAtRiskDownloadLoading(true);
     setAtRiskDownloadError(null);
 
     try {
       const { download_url } = await prepareAtRiskDetailsDownload(projectId, selectedAtRiskArtifactId);
-
-      if (popup && !popup.closed) {
-        popup.location.href = download_url;
-      } else {
-        const link = document.createElement("a");
-        link.href = download_url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
+      const link = document.createElement("a");
+      link.href = download_url;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (err) {
-      if (popup && !popup.closed) {
-        popup.close();
-      }
       setAtRiskDownloadError(
         err instanceof Error
           ? err.message
-          : "Impossible de préparer le téléchargement du fichier complet.",
+          : "Impossible de récupérer le lien de téléchargement du fichier complet.",
       );
     } finally {
       setAtRiskDownloadLoading(false);
@@ -1564,7 +1463,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                         {atRiskDownloadLoading ? (
                           <>
                             <Spinner size={14} className="animate-spin" />
-                            Préparation du fichier...
+                            Téléchargement...
                           </>
                         ) : (
                           "Télécharger le fichier complet"
@@ -1581,7 +1480,7 @@ export function ProjectDetailContent({ projectId }: { projectId: number }) {
                       </p>
                       {atRiskDownloadLoading ? (
                         <p className="text-xs text-muted-foreground">
-                          Le téléchargement démarrera automatiquement dès que le fichier complet sera prêt.
+                          Le téléchargement va démarrer automatiquement dès réception du lien.
                         </p>
                       ) : null}
                       {atRiskDownloadError ? (
